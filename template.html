@@ -244,6 +244,31 @@
   table.tt td:hover{background:var(--cover-fill); border-color:var(--cover-edge)}
   .tt-sub{display:block; font-weight:600; font-size:13px}
   .tt-meta{display:block; font-size:11.5px; color:var(--ink-soft); margin-top:1px}
+  .all-wrap{overflow:auto; max-height:78vh; border:1px solid var(--line); background:var(--surface); border-radius:3px; margin-top:16px}
+  table.all{border-collapse:separate; border-spacing:0; font-size:11px}
+  table.all th, table.all td{border-right:1px solid var(--line); border-bottom:1px solid var(--line); padding:3px 5px; text-align:center; white-space:nowrap}
+  table.all thead th{
+    position:sticky; top:0; z-index:3; background:var(--surface-2); color:var(--ink-soft);
+    font-family:"IBM Plex Mono",monospace; font-size:10px; font-weight:600; padding:4px 5px; min-width:52px;
+  }
+  table.all thead th span{display:block; color:var(--ink-faint); font-weight:400}
+  table.all th.cn{
+    position:sticky; left:0; z-index:2; background:var(--surface-2); min-width:46px;
+    font-family:"IBM Plex Mono",monospace; font-size:11px; color:var(--ink); font-weight:600;
+  }
+  table.all thead th.cn{z-index:4}
+  table.all .daystart{border-left:2px solid var(--line-strong)}
+  table.all td{height:34px; color:var(--ink)}
+  table.all td b{display:block; font-weight:600; font-size:11px}
+  table.all td i{display:block; font-style:normal; font-size:9.5px; color:var(--ink-faint); margin-top:1px}
+  table.all tbody tr:nth-child(even) td{background:color-mix(in srgb, var(--surface-2) 40%, transparent)}
+  table.all td.sp{color:var(--ink-faint)}
+  table.all td.none{background:var(--paper)}
+  table.all td.moved{background:var(--cover-fill); box-shadow:inset 0 0 0 1px var(--cover)}
+  table.all td.moved b{color:var(--cover)}
+  table.all td.empty{background:var(--absent-fill); box-shadow:inset 0 0 0 1px var(--absent)}
+  table.all td.empty b, table.all td.empty i{color:var(--absent)}
+
   .tt-tally{display:flex; gap:22px; flex-wrap:wrap; margin-top:13px; font-size:12.5px; color:var(--ink-soft)}
   .tt-tally b{color:var(--ink); font-family:"IBM Plex Mono",monospace; font-weight:600}
 
@@ -284,7 +309,8 @@
 
   <nav class="tabs" role="tablist" aria-label="화면 선택">
     <button class="tab" role="tab" id="tab-swap" aria-selected="true" aria-controls="panel-swap">수업 교체</button>
-    <button class="tab" role="tab" id="tab-tt" aria-selected="false" aria-controls="panel-tt">전체 시간표</button>
+    <button class="tab" role="tab" id="tab-tt" aria-selected="false" aria-controls="panel-tt">교사·학급별</button>
+    <button class="tab" role="tab" id="tab-all" aria-selected="false" aria-controls="panel-all">전체 학반</button>
   </nav>
 
   <div class="panel" id="panel-swap" role="tabpanel" aria-labelledby="tab-swap">
@@ -318,6 +344,10 @@
     <div id="tt-out"></div>
   </div>
 
+  <div class="panel" id="panel-all" role="tabpanel" aria-labelledby="tab-all" hidden>
+    <div id="all-out"></div>
+  </div>
+
   <dialog class="report" id="report">
     <div class="report-bar">
       <h3 id="report-title">교체 수업 신고서</h3>
@@ -330,6 +360,8 @@
   </dialog>
 
   <p class="note">
+    <b>교체하지 않는 수업</b> — 강사가 맡는 <b>운동</b>과 <b>목·금 중국어</b>는 대체가 어려워 교체 대상에서 제외합니다.
+    부장교사의 <b>목요일 1교시</b>, 심재경·이승열 선생님의 <b>목요일 2·3교시</b>는 반드시 비워 두므로 그 시간으로는 어떤 수업도 옮기지 않습니다.<br>
     <b>교환 규칙</b> — 결강 수업과 <b>같은 반의 다른 수업</b>이 교시를 통째로 맞바꿉니다. 두 수업 모두 담당 교사가 그대로 자기 과목을 가르치므로 보강이 생기지 않고, 학급이 주당 받는 과목 수도 변하지 않습니다.
     창체·고정수업과 2시간 연강은 쪼갤 수 없어 상대 후보에서 뺍니다.<br>
     <b>검사 항목</b> — 양쪽 교사의 같은 시간 수업 중복, 수업 불가 교시, 근무 가능 요일, 하루 최대 수업, 최대 연속수업을 가상 시간표에서 다시 검사합니다.
@@ -348,6 +380,25 @@
 
 <script>
 const DATA = /*__DATA__*/;
+
+/* ── 학교 규칙 ─────────────────────────── */
+const BUJANG = ["박정미", "강한주", "오지영", "성은아", "이은홍", "최현",
+                "이제현", "전제광", "김은경", "임슬기", "조민택"];
+const NO_COVER = [...BUJANG, "이승열"];   // 이승열은 신고 당사자
+
+/* 강사가 맡아 다른 교사로 대체할 수 없는 수업. 교체 대상에도, 상대 후보에도 넣지 않는다. */
+const NO_SWAP = [
+  { subject: "운동" },                        // 이서윤·임이경·이종영
+  { subject: "중국", days: ["목", "금"] },    // 목·금 강사 수업
+];
+const noSwap = l => NO_SWAP.some(r => r.subject === l.subject && (!r.days || r.days.includes(l.day)));
+
+/* 회의·업무로 반드시 비워 두는 시간. 여기로는 어떤 수업도 옮기지 않는다. */
+const KEEP_FREE = [
+  { who: BUJANG, day: "목", periods: [1] },
+  { who: ["심재경", "이승열"], day: "목", periods: [2, 3] },
+];
+
 const HWPX_TPL = "/*__HWPX_TPL__*/";
 
 /* ── 색인: 원본은 배정 960건을 매번 훑지만, 여기서는 미리 묶어 둔다 ── */
@@ -365,6 +416,12 @@ for (const l of DATA.schedule) {
   byTeacherSlot.set(l.teacherId + "|" + l.day + "-" + l.period, l);
   if (!byTeacher.has(l.teacherId)) byTeacher.set(l.teacherId, []);
   byTeacher.get(l.teacherId).push(l);
+}
+for (const rule of KEEP_FREE) {
+  for (const t of DATA.teachers) {
+    if (!rule.who.includes(t.name)) continue;
+    for (const p of rule.periods) t.slotStates[rule.day + "-" + p] = "unavailable";
+  }
 }
 const ACTIVE = DATA.teachers.filter(t => byTeacher.has(t.id));
 const byClassSlot = new Map();   // "cid|요일-교시" → 수업
@@ -460,11 +517,6 @@ function strainOf(chain, temp, usedIds, add, omit, sel) {
 
 /* 보강을 부탁하지 않는 사람 — 부장교사와 신고 당사자.
    부장 여부는 시간표 자료에 없으므로 이름으로 관리한다. 바뀌면 여기만 고치면 된다. */
-const NO_COVER = [
-  "박정미", "강한주", "오지영", "성은아", "이은홍", "최현",
-  "이제현", "전제광", "김은경", "임슬기", "조민택",   // 부장교사
-  "이승열",                                            // 신고 당사자
-];
 
 /* 어느 교사가 어느 학년·학급에 들어가는지 — 같은 학년 선생님을 먼저 권하기 위해 */
 const teacherGrades = new Map(), teacherClasses = new Map();
@@ -529,10 +581,12 @@ const CYCLE_MAX = 3;   // 한 회전에 참여하는 수업 수 상한
    그대로 가르치므로 보강이 생기지 않고, 반이 주당 받는 과목 수도 변하지 않는다. */
 function optionsFor(lesson, temp, usedIds, limit, sel) {
   if (lesson.blockId || lesson.locked || lesson.type === "special") return [];   // 한 시간만 떼어낼 수 없다
+  if (noSwap(lesson)) return [];                                                 // 강사 수업은 교체하지 않는다
   const absent = T.get(sel.teacherId);
   const pool = (byClass.get(lesson.classId) || []).filter(x =>
     x.id !== lesson.id && !usedIds.has(x.id) &&
     !(x.type === "special" || x.locked || x.blockId) &&   // 창체·고정·연강은 쪼갤 수 없다
+    !noSwap(x) &&                                        // 강사 수업은 건드리지 않는다
     x.teacherId && x.teacherId !== absent.id &&
     !inWindow(x.day, x.period, sel));                     // 결강 시간대로는 옮길 수 없다
 
@@ -692,6 +746,7 @@ function weekMap(plan, r) {
 
 const missReason = l => l.blockId ? "2시간 연강이라 한 시간만 옮길 수 없음"
   : l.locked || l.type === "special" ? "고정수업이라 옮길 수 없음"
+  : noSwap(l) ? "강사가 맡는 수업이라 교체하지 않음"
   : "같은 반 안에 옮길 자리가 없음";
 
 function planText(plan, r) {
@@ -782,7 +837,7 @@ function planCard(plan, i, r) {
     ${weekMap(plan, r)}
     <ol class="steps">${steps}${missed}</ol>
     ${adviseBlock(plan, r)}
-    <div class="plan-foot"><button class="ghost" type="button" data-copy="${i}">표 복사</button><button class="ghost" type="button" data-report="${i}">신고서</button></div>
+    <div class="plan-foot"><button class="ghost" type="button" data-copy="${i}">표 복사</button><button class="ghost" type="button" data-report="${i}">신고서</button><button class="ghost" type="button" data-apply="${i}">전체 학반에서 보기</button></div>
   </article>`;
 }
 
@@ -829,6 +884,12 @@ function render(r) {
   });
   out.querySelectorAll("[data-report]").forEach(btn => {
     btn.addEventListener("click", () => openReport(r.plans[Number(btn.dataset.report)], r));
+  });
+  out.querySelectorAll("[data-apply]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      applied = { plan: r.plans[Number(btn.dataset.apply)], r, index: Number(btn.dataset.apply) };
+      $("tab-all").click();
+    });
   });
 }
 
@@ -1102,6 +1163,72 @@ $("report-save").addEventListener("click", async () => {
   }
 });
 
+/* ── 전체 학반 시간표 ─────────────────────
+   30개 학급을 한 판에 놓고, 고른 교체안을 적용한 모습까지 보여 준다. */
+let applied = null;
+
+function renderAllClasses() {
+  const slots = [];
+  for (const d of DATA.days) for (let p = 1; p <= d.periods; p += 1) slots.push({ day: d.id, period: p });
+
+  /* 교체안이 있으면 바뀔 칸을 미리 계산한다 */
+  const change = new Map();   // "cid|요일-교시" → {subject, teacher, room}
+  if (applied) {
+    for (const step of applied.plan.steps) {
+      for (const sl of step.slots) {
+        change.set(step.classId + "|" + sl.day + "-" + sl.period,
+          { subject: sl.afterSubject, teacher: sl.afterTeacher, room: sl.afterRoom });
+      }
+    }
+  }
+  const gone = new Set();     // 결강이라 비는 칸
+  if (applied) {
+    for (const l of applied.r.affected) {
+      const k = l.classId + "|" + l.day + "-" + l.period;
+      if (!change.has(k)) gone.add(k);
+    }
+  }
+
+  let head = '<tr><th scope="col" class="cn">학반</th>';
+  for (const d of DATA.days) {
+    for (let p = 1; p <= d.periods; p += 1) {
+      head += `<th scope="col" class="${p === 1 ? "daystart" : ""}">${p === 1 ? d.id : ""}<span>${p}</span></th>`;
+    }
+  }
+  head += "</tr>";
+
+  let body = "";
+  for (const c of DATA.classes) {
+    body += `<tr><th scope="row" class="cn">${esc(c.name)}</th>`;
+    for (const sl of slots) {
+      const key = c.id + "|" + sl.day + "-" + sl.period;
+      const l = byClassSlot.get(key);
+      const start = sl.period === 1 ? " daystart" : "";
+      if (!l) { body += `<td class="none${start}"></td>`; continue; }
+      const now = change.get(key);
+      const empty = gone.has(key);
+      const subject = now ? now.subject : l.subject;
+      const teacher = now ? now.teacher : (T.get(l.teacherId) || {}).name || "";
+      const kind = empty ? " empty" : now ? " moved" : "";
+      body += `<td class="${l.type === "special" ? "sp" : ""}${kind}${start}" title="${esc(c.name)} ${sl.day}${sl.period} ${esc(subject)} ${esc(teacher)}">
+        <b>${esc(subject)}</b><i>${esc(empty ? "결강" : teacher)}</i></td>`;
+    }
+    body += "</tr>";
+  }
+
+  const note = applied
+    ? `<div class="banner"><strong>대안 ${applied.index + 1} 적용 화면 · ${esc(applied.r.absent.name)} 선생님 ${applied.r.sel.day}요일 ${periodLabel(applied.r.sel.period)}</strong>
+        <p>바뀌는 칸은 청록으로, 아직 채우지 못한 칸은 자두빛으로 표시했습니다. 실제 시간표는 바뀌지 않습니다.
+        <button class="ghost" type="button" id="all-clear" style="margin-left:8px">원래대로 보기</button></p></div>`
+    : `<div class="banner none"><strong>2026학년도 2학기 전체 학반 시간표</strong>
+        <p>수업 교체에서 대안을 고른 뒤 ‘전체 학반에서 보기’를 누르면 바뀐 모습을 여기서 확인할 수 있습니다.</p></div>`;
+
+  $("all-out").innerHTML = note +
+    `<div class="all-wrap"><table class="all"><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
+  const clear = $("all-clear");
+  if (clear) clear.addEventListener("click", () => { applied = null; renderAllClasses(); });
+}
+
 /* ── 결강 날짜 ↔ 요일 연동 ───────────────── */
 const DAY_NUM = { 월:1, 화:2, 수:3, 목:4, 금:5 };
 const pad = n => String(n).padStart(2, "0");
@@ -1128,7 +1255,7 @@ $("day").addEventListener("change", () => {
 });
 
 /* ── 화면 전환 ───────────────────────────── */
-const TABS = [["tab-swap", "panel-swap"], ["tab-tt", "panel-tt"]];
+const TABS = [["tab-swap", "panel-swap"], ["tab-tt", "panel-tt"], ["tab-all", "panel-all"]];
 for (const [tabId, panelId] of TABS) {
   $(tabId).addEventListener("click", () => {
     for (const [t, p] of TABS) {
@@ -1137,6 +1264,7 @@ for (const [tabId, panelId] of TABS) {
       $(p).hidden = !on;
     }
     if (panelId === "panel-tt") renderTimetable();
+    if (panelId === "panel-all") renderAllClasses();
     window.scrollTo({ top: 0 });
   });
 }
