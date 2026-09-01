@@ -304,7 +304,8 @@
   <p class="note">
     <b>교환 규칙</b> — 결강 수업과 <b>같은 반의 다른 수업</b>이 교시를 통째로 맞바꿉니다. 두 수업 모두 담당 교사가 그대로 자기 과목을 가르치므로 보강이 생기지 않고, 학급이 주당 받는 과목 수도 변하지 않습니다.
     창체·고정수업과 2시간 연강은 쪼갤 수 없어 상대 후보에서 뺍니다.<br>
-    <b>검사 항목</b> — 양쪽 교사의 같은 시간 수업 중복, 수업 불가 교시, 근무 가능 요일, 일일 최대 수업, 최대 연속수업을 가상 시간표에서 다시 검사합니다.<br>
+    <b>검사 항목</b> — 양쪽 교사의 같은 시간 수업 중복, 수업 불가 교시, 근무 가능 요일, 하루 최대 수업, 최대 연속수업을 가상 시간표에서 다시 검사합니다.
+    하루 최대는 학교 규칙을 따릅니다 — <b>월·수·금 5시간, 화·목 6시간</b>.<br>
     <b>부담 점수</b> — 낮을수록 좋습니다. 두 수업의 요일이 가까울수록, 두 교사의 기피 교시를 건드리지 않을수록 낮아집니다.<br>
     <b>부담 표시</b> — 교체 전후를 비교해 연속 3시간 이상이 새로 생기거나 하루 수업이 늘어 한도에 닿으면 적어 둡니다.
     그중 <b>연속 4시간, 하루 6시간을 넘거나 하루 한도가 5시간 이상인 분이 한도까지 차는 경우</b>를 무리한 교체로 보고 보강을 권합니다.<br>
@@ -503,13 +504,24 @@ function periodsOn(tid, day, temp, omit, sel) {
 function loadOk(teacher, temp, omit, sel) {
   for (const d of DATA.days) {
     const p = periodsOn(teacher.id, d.id, temp, omit, sel);
-    if (p.length > teacher.maxDaily) return false;
+    if (p.length > capFor(teacher.id, d.id)) return false;
     if (consecutiveMax(p) > teacher.maxConsecutive) return false;
   }
   return true;
 }
 
 const stateAt = (teacher, day, period) => teacher.slotStates[day + "-" + period] || "available";
+
+/* 하루에 설 수 있는 최대 수업 수. 학교 규칙이며 교사별 값보다 우선한다.
+   월·수·금은 6교시, 화·목은 7교시여서 한도가 다르다.
+   자료에 들어 있던 교사별 일일 최대는 현재 시간표에서 뽑아낸 추정값이라 쓰지 않는다. */
+const DAILY_CAP = { 월: 5, 화: 6, 수: 5, 목: 6, 금: 5 };
+const capOf = day => DAILY_CAP[day] || 5;
+
+/* 하루에 몰아서 근무하는 강사처럼 이미 한도를 넘겨 짜인 경우가 있다.
+   그 상태는 그대로 인정하되, 교체로 거기서 더 늘어나지는 않게 한다. */
+const capFor = (teacherId, day) =>
+  Math.max(capOf(day), (byTeacherDay.get(teacherId + "|" + day) || []).length);
 /* 이 회전이 각 교사의 하루를 얼마나 무겁게 만드는지, 교체 전후를 비교한다.
    한도를 넘는 안은 이미 걸러졌으므로 여기서 잡히는 것은 "합법이지만 부담되는" 경우다. */
 function strainOf(chain, temp, usedIds, add, omit, sel) {
@@ -529,13 +541,14 @@ function strainOf(chain, temp, usedIds, add, omit, sel) {
     const after = periodsOn(tid, day, add, omit, sel);
     const beforeRun = consecutiveMax(before), afterRun = consecutiveMax(after);
     const runUp = afterRun >= 3 && afterRun > beforeRun;                    // 3연속 이상이 새로 생김
-    const loadUp = after.length > before.length && after.length >= t.maxDaily;  // 하루 한도까지 참
+    const cap = capFor(tid, day);
+    const loadUp = after.length > before.length && after.length >= cap;   // 하루 한도까지 참
     if (!runUp && !loadUp) continue;
     notes.push({
       teacher: t.name, day, runUp, loadUp,
       run: afterRun, maxRun: t.maxConsecutive,
-      count: after.length, maxCount: t.maxDaily,
-      hard: afterRun >= 4 || after.length >= 6 || (loadUp && after.length >= t.maxDaily && t.maxDaily >= 5),
+      count: after.length, maxCount: cap,
+      hard: afterRun >= 4 || loadUp,
     });
   }
   return notes;
@@ -573,12 +586,12 @@ function freeTeachersAt(day, period, sel, classId) {
     if (stateAt(t, day, period) === "unavailable") continue;
     if (byTeacherSlot.has(t.id + "|" + day + "-" + period)) continue;
     const after = (byTeacherDay.get(t.id + "|" + day) || []).map(l => l.period).concat(period);
-    if (after.length > t.maxDaily || consecutiveMax(after) > t.maxConsecutive) continue;
+    if (after.length > capFor(t.id, day) || consecutiveMax(after) > t.maxConsecutive) continue;
     out.push({
       name: t.name, subjects: t.subjects.join("/"),
       sameClass: Boolean(classId && teacherClasses.get(t.id) && teacherClasses.get(t.id).has(classId)),
       sameGrade: Boolean(grade && teacherGrades.get(t.id) && teacherGrades.get(t.id).has(grade)),
-      grade, load: after.length, max: t.maxDaily,
+      grade, load: after.length, max: capFor(t.id, day),
       run: consecutiveMax(after), prefers: stateAt(t, day, period) === "prefer",
     });
   }
@@ -1266,7 +1279,7 @@ function renderTimetable() {
       <span>주당 수업 <b>${regular}</b>시간</span>
       <span>수업 있는 날 <b>${daysUsed}</b>일</span>
       <span>${partnerLabel} <b>${partner}</b></span>
-      ${teacher ? `<span>근무 요일 <b>${esc(teacher.allowedDays.join(""))}</b></span><span>일일 최대 <b>${teacher.maxDaily}</b> · 연속 최대 <b>${teacher.maxConsecutive}</b></span>` : ""}
+      ${teacher ? `<span>근무 요일 <b>${esc(teacher.allowedDays.join(""))}</b></span><span>연속 최대 <b>${teacher.maxConsecutive}</b>시간</span>` : ""}
     </p>`;
 }
 fillEntities();
