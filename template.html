@@ -192,6 +192,12 @@
     font-family:"IBM Plex Mono",monospace;
   }
   .strain.hard{color:var(--warn); font-weight:500}
+  .repeat{
+    display:flex; flex-wrap:wrap; gap:6px; margin:10px 16px 0; padding-top:9px;
+    border-top:1px dashed var(--line); font-size:11.5px; color:var(--ink-soft);
+    font-family:"IBM Plex Mono",monospace;
+  }
+  .repeat b{color:var(--ink); font-weight:600}
   .advise{
     margin:14px 16px 0; padding:11px 13px; border:1px solid var(--warn-edge);
     background:var(--warn-fill); border-radius:2px;
@@ -466,7 +472,11 @@ const ACTIVE = DATA.teachers.filter(t => byTeacher.has(t.id));
 const byClassSlot = new Map();   // "cid|요일-교시" → 수업
 const byRoomSlot = new Map();    // "교실|요일-교시" → 수업
 const byClass = new Map();       // cid → 수업[]
+const byClassDay = new Map();    // "cid|요일" → 수업[]
 for (const l of DATA.schedule) {
+  const dk = l.classId + "|" + l.day;
+  if (!byClassDay.has(dk)) byClassDay.set(dk, []);
+  byClassDay.get(dk).push(l);
   byClassSlot.set(l.classId + "|" + l.day + "-" + l.period, l);
   if (!byClass.has(l.classId)) byClass.set(l.classId, []);
   byClass.get(l.classId).push(l);
@@ -622,7 +632,8 @@ function hardReason(n) {
   return n.teacher + " 선생님 " + n.day + "요일 " + n.count + "시간(한도 " + n.maxCount + ")";
 }
 
-const CYCLE_MAX = 3;   // 한 회전에 참여하는 수업 수 상한
+const CYCLE_MAX = 3;      // 한 회전에 참여하는 수업 수 상한
+const SUBJECT_CAP = 2;   // 한 반이 하루에 같은 과목을 받을 수 있는 최대 시간
 
 /* 결강 수업을 같은 반 안에서 다른 교시로 보낸다.
    반의 모든 교시가 차 있으므로 옮기면 반드시 누군가를 밀어내고, 그 사슬은 결국
@@ -660,6 +671,12 @@ function optionsFor(unit, temp, usedIds, limit, sel) {
     const busy = byTeacherSlot.get(t.id + "|" + day + "-" + period);
     if (busy && !leaving.has(busy.id)) return false;
     if (temp.some(x => x.teacherId === t.id && x.day === day && x.period === period)) return false;
+    /* 한 반이 하루에 같은 과목을 받는 시간은 두 시간까지다. 미술 연강이 그 두 시간을
+       쓰는 형태이고, 지금 시간표에도 그 밖에 두 번을 넘기는 자리는 없다. */
+    const same = (byClassDay.get(item.classId + "|" + day) || [])
+        .filter(x => x.subject === item.subject && x.id !== item.id && !leaving.has(x.id)).length
+      + temp.filter(x => x.classId === item.classId && x.day === day && x.subject === item.subject).length;
+    if (same + 1 > SUBJECT_CAP) return false;
     // 교과교실을 두 분이 나눠 쓰는 곳이 있어, 그 방이 비어 있는지도 본다
     if (item.room) {
       const inRoom = byRoomSlot.get(item.room + "|" + day + "-" + period);
@@ -686,7 +703,8 @@ function optionsFor(unit, temp, usedIds, limit, sel) {
     const add = temp.slice();
     for (let i = 0; i < chain.length; i += 1) {
       const to = chain[(i + 1) % chain.length];
-      add.push({ teacherId: chain[i].teacherId, day: to.day, period: to.period, room: chain[i].room || "" });
+      add.push({ teacherId: chain[i].teacherId, day: to.day, period: to.period, room: chain[i].room || "",
+                 classId: chain[i].classId, subject: chain[i].subject });
     }
     const omit = new Set(usedIds);
     for (const x of chain) omit.add(x.id);
@@ -750,7 +768,8 @@ function optionsFor(unit, temp, usedIds, limit, sel) {
         { from: pair[0], to: to[0] }, { from: pair[1], to: to[1] },
       ];
       const add = temp.concat(moves.map(m =>
-        ({ teacherId: m.from.teacherId, day: m.to.day, period: m.to.period, room: m.from.room || "" })));
+        ({ teacherId: m.from.teacherId, day: m.to.day, period: m.to.period, room: m.from.room || "",
+           classId: m.from.classId, subject: m.from.subject })));
       const omit = new Set(usedIds);
       for (const x of block.concat(pair)) omit.add(x.id);
       let ok = true;
@@ -916,6 +935,8 @@ function planText(plan, r) {
   const strain = plan.steps.flatMap(s => (s.strain || []).map(n =>
     "· " + n.teacher + " 선생님 " + n.day + "요일 " +
     [n.runUp ? "연속 " + n.run + "시간" : "", n.loadUp ? "하루 " + n.count + "시간(한도 " + n.maxCount + ")" : ""].filter(Boolean).join(" · ")));
+  const twice = repeatNotes(plan).map(x =>
+    "· " + x.className + " " + x.day + "요일 " + x.subject + " " + x.count + "시간");
   const miss = plan.missed.map(l => {
     const free = freeTeachersAt(l.day, l.period, r.sel, l.classId).slice(0, 4)
       .map(f => f.name + (f.sameClass ? "(이 반 담당)" : f.sameGrade ? "(" + f.grade + "학년)" : "")).join(", ");
@@ -933,6 +954,7 @@ function planText(plan, r) {
     : [];
   return [head + mark, "", ...rows,
     ...(strain.length ? ["", "[부담 확인]", ...strain] : []),
+    ...(twice.length ? ["", "[같은 과목이 하루에 두 시간]", ...twice] : []),
     ...(miss.length ? ["", "[미해결]", ...miss] : []),
     ...advise].join("\n");
 }
@@ -959,6 +981,34 @@ function adviseBlock(plan, r) {
     + "교체를 밀어붙이기보다, " + slot.day + " " + slot.period + "교시에 공강인 선생님께 보강을 부탁하는 편이 나을 수 있습니다."
     + (who ? "<br><b>그 시간 공강</b> — " + who : " 다만 그 시간에 공강인 선생님이 없습니다.")
     + "</p></div>";
+}
+
+/* 이 안을 쓰면 한 반이 하루에 같은 과목을 두 시간 받게 되는 곳.
+   규칙상 두 시간까지는 되므로 막지 않고, 보고 판단하시라고 적어만 둔다.
+   원래부터 두 시간이던 미술 연강은 새로 생긴 것이 아니므로 뺀다. */
+function repeatNotes(plan) {
+  const after = new Map();   // "cid|요일-교시" → 바뀐 뒤 과목
+  for (const s of plan.steps) {
+    for (const sl of s.slots) after.set(s.classId + "|" + sl.day + "-" + sl.period, sl.afterSubject);
+  }
+  const out = [], seen = new Set();
+  for (const s of plan.steps) {
+    for (const day of new Set(s.slots.map(x => x.day))) {
+      const key = s.classId + "|" + day;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const was = new Map(), now = new Map();
+      for (const l of byClassDay.get(key) || []) {
+        was.set(l.subject, (was.get(l.subject) || 0) + 1);
+        const sub = after.get(key + "-" + l.period) || l.subject;
+        now.set(sub, (now.get(sub) || 0) + 1);
+      }
+      for (const [sub, cnt] of now) {
+        if (cnt > 1 && cnt > (was.get(sub) || 0)) out.push({ className: cls(s.classId), day, subject: sub, count: cnt });
+      }
+    }
+  }
+  return out;
 }
 
 /* 못 메운 수업 한 줄 — 사유와 그 시간 공강 선생님을 함께 적는다 */
@@ -993,6 +1043,7 @@ function planCard(plan, i, r) {
   const done = plan.steps.length, miss = plan.missed.length;
   const fixed = plan.steps.reduce((n, s) => n + (s.fixed || 1), 0);   // 해결한 결강 수업 수
   const sameDay = done > 0 && plan.steps.every(s => s.sameDay);       // 안 전체가 그날 안에서 돈다
+  const repeats = repeatNotes(plan);                                  // 같은 과목이 하루에 두 시간 되는 곳
   const steps = plan.steps.map((s, n) => `
     <li><span class="idx">${n + 1}</span><div class="swap">
       <div class="swap-head"><b>${esc(s.className)}</b>
@@ -1016,6 +1067,8 @@ function planCard(plan, i, r) {
     </div>
     ${weekMap(plan, r)}
     <ol class="steps">${steps}${missed}</ol>
+    ${repeats.length ? `<div class="repeat">${repeats.map(x =>
+      `<span>${esc(x.className)} ${x.day}요일 <b>${esc(x.subject)} ${x.count}시간</b></span>`).join("")}</div>` : ""}
     ${adviseBlock(plan, r)}
     <div class="plan-foot"><button class="ghost" type="button" data-copy="${i}">표 복사</button><button class="ghost" type="button" data-report="${i}">신고서</button><button class="ghost" type="button" data-apply="${i}">전체 학반에서 보기</button></div>
   </article>`;
