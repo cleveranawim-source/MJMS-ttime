@@ -634,6 +634,7 @@ function optionsFor(lesson, temp, usedIds, limit, sel) {
       return {
         day: before.day, period: before.period,
         beforeSubject: before.subject, beforeTeacher: T.get(before.teacherId).name,
+        beforeRoom: (T.get(before.teacherId) || {}).room || "",
         afterSubject: after.subject, afterTeacher: T.get(after.teacherId).name,
         afterRoom: (T.get(after.teacherId) || {}).room || "",
       };
@@ -817,7 +818,7 @@ function planCard(plan, i, r) {
       <div class="moves">
         ${s.slots.map(sl => `
           <span class="mv-slot">${sl.day} ${sl.period}</span>
-          <span class="mv-was">${esc(sl.beforeSubject)} <i>${esc(sl.beforeTeacher)}</i></span>
+          <span class="mv-was">${esc(sl.beforeSubject)} <i>${esc(sl.beforeTeacher)}</i>${sl.beforeRoom ? ` <span class="room">${esc(sl.beforeRoom)}</span>` : ""}</span>
           <span class="mv-arw" aria-hidden="true">→</span>
           <span class="mv-now"><b>${esc(sl.afterSubject)}</b> <i>${esc(sl.afterTeacher)}</i>${sl.afterRoom ? ` <span class="room">${esc(sl.afterRoom)}</span>` : ""}</span>`).join("")}
       </div>
@@ -969,6 +970,8 @@ $("out").innerHTML = `<div class="empty"><strong>조건을 정하고 ‘경우�
 const IN_ARTIFACT = typeof window.claude === "object" && window.claude !== null && typeof window.claude.use === "function";
 const SITE_URL = "https://cleveranawim-source.github.io/MJMS-ttime/";
 
+const where = (className, room) => room ? className + " (" + room + ")" : className;
+
 function reportRows(plan, r, base) {
   const rows = [];
   const md = d => (d.getMonth() + 1) + "." + d.getDate();
@@ -976,8 +979,8 @@ function reportRows(plan, r, base) {
     for (const sl of s.slots) {
       const d = md(nextDateFor(sl.day, base));
       rows.push({
-        left: [sl.beforeSubject, d, sl.day, sl.period, s.className, sl.beforeTeacher],
-        right: [sl.afterSubject, d, sl.day, sl.period, s.className, sl.afterTeacher],
+        left: [sl.beforeSubject, d, sl.day, sl.period, where(s.className, sl.beforeRoom), sl.beforeTeacher],
+        right: [sl.afterSubject, d, sl.day, sl.period, where(s.className, sl.afterRoom), sl.afterTeacher],
       });
     }
   }

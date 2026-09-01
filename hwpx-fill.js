@@ -26,6 +26,8 @@
   }
   const monthDay = d => (d.getMonth() + 1) + "." + d.getDate();
   const spaced = name => String(name || "").split("").join(" ");
+  /* 교과교실제라 학생이 담당 교사의 교실로 간다. 학반과 교실을 함께 적는다. */
+  const where = (className, room) => room ? className + " (" + room + ")" : className;
   const schoolYear = d => (d.getMonth() + 1 >= 3 ? d.getFullYear() : d.getFullYear() - 1);
 
   /* 회전에 참여한 교시마다 한 행. 왼쪽은 원래 있던 수업, 오른쪽은 바뀐 뒤 들어갈 수업.
@@ -36,8 +38,8 @@
       for (const sl of s.slots) {
         const d = monthDay(dateForDay(baseDate, sl.day));
         rows.push({
-          left:  [sl.beforeSubject, d, sl.day, String(sl.period), s.className, sl.beforeTeacher],
-          right: [sl.afterSubject, d, sl.day, String(sl.period), s.className, sl.afterTeacher],
+          left:  [sl.beforeSubject, d, sl.day, String(sl.period), where(s.className, sl.beforeRoom), sl.beforeTeacher],
+          right: [sl.afterSubject, d, sl.day, String(sl.period), where(s.className, sl.afterRoom), sl.afterTeacher],
         });
       }
     }
