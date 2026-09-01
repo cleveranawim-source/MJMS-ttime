@@ -1257,6 +1257,7 @@ function fillPeriods() {
   $("periods").innerHTML = html;
   syncAll();
 }
+fillPeriods();
 $("day").addEventListener("change", fillPeriods);
 $("teacher").addEventListener("change", fillPeriods);
 $("periods").addEventListener("change", e => {
