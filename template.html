@@ -118,6 +118,11 @@
   .plan.best{border-color:var(--cover-edge)}
   .plan-top{display:flex; align-items:flex-start; justify-content:space-between; gap:10px; padding:14px 16px 12px; border-bottom:1px solid var(--line)}
   .plan-top h3{font-size:16.5px}
+  .plan-name{display:flex; align-items:baseline; gap:9px; flex-wrap:wrap}
+  .day-tag{
+    font-size:13px; font-weight:600; white-space:nowrap; color:var(--paper);
+    background:var(--ink); padding:4px 10px; border-radius:2px;
+  }
   .chip{font-size:11px; font-weight:600; letter-spacing:.05em; padding:3px 8px; border-radius:2px; white-space:nowrap; font-family:"IBM Plex Mono",monospace}
   .chip.full{color:var(--cover); background:var(--cover-fill); border:1px solid var(--cover-edge)}
   .chip.part{color:var(--warn); background:var(--warn-fill); border:1px solid var(--warn-edge)}
@@ -893,8 +898,10 @@ const missReason = l => l.locked || l.type === "special" ? "고정수업이라 �
 function planText(plan, r) {
   const head = r.absent.name + " 선생님 " + r.sel.day + "요일 " + periodLabel(r.sel) + " " + r.sel.reason
     + (plan.steps.length ? " · 수업 교체안" : " · 보강 요청");
+  const sameDay = plan.steps.length > 0 && plan.steps.every(s => s.sameDay);
+  const mark = sameDay ? "  [같은 날 안에서]" : "";
   const rows = plan.steps.map((s, i) => [
-    (i + 1) + ". " + s.className + " — " + s.label + (s.sameDay ? " (같은 날 안에서)" : ""),
+    (i + 1) + ". " + s.className + " — " + s.label + (!sameDay && s.sameDay ? " (같은 날 안에서)" : ""),
     ...s.slots.map(sl => "   " + sl.day + " " + sl.period + "교시: " +
       sl.beforeSubject + "(" + sl.beforeTeacher + ") → " + sl.afterSubject + "(" + sl.afterTeacher + ")"),
   ].join("\n"));
@@ -916,7 +923,7 @@ function planText(plan, r) {
          .filter(f => !hardNotes.some(n => n.teacher === f.name)).slice(0, 5)
          .map(f => "· " + f.name + "(" + [f.subjects, f.sameClass ? "이 반 담당" : f.sameGrade ? f.grade + "학년 담당" : ""].filter(Boolean).join(", ") + ")")]
     : [];
-  return [head, "", ...rows,
+  return [head + mark, "", ...rows,
     ...(strain.length ? ["", "[부담 확인]", ...strain] : []),
     ...(miss.length ? ["", "[미해결]", ...miss] : []),
     ...advise].join("\n");
@@ -977,10 +984,11 @@ function coverOnlyCard(r) {
 function planCard(plan, i, r) {
   const done = plan.steps.length, miss = plan.missed.length;
   const fixed = plan.steps.reduce((n, s) => n + (s.fixed || 1), 0);   // 해결한 결강 수업 수
+  const sameDay = done > 0 && plan.steps.every(s => s.sameDay);       // 안 전체가 그날 안에서 돈다
   const steps = plan.steps.map((s, n) => `
     <li><span class="idx">${n + 1}</span><div class="swap">
       <div class="swap-head"><b>${esc(s.className)}</b>
-        <span>${esc(s.label)}</span>${s.sameDay ? '<b class="tag" title="그날 학교에 남아 다른 교시에 이 수업을 합니다">같은 날</b>' : ""}</div>
+        <span>${esc(s.label)}</span>${!sameDay && s.sameDay ? '<b class="tag" title="그날 학교에 남아 다른 교시에 이 수업을 합니다">같은 날</b>' : ""}</div>
       <div class="moves">
         ${s.slots.map(sl => `
           <span class="mv-slot">${sl.day} ${sl.period}</span>
@@ -993,7 +1001,8 @@ function planCard(plan, i, r) {
   const missed = plan.missed.map(l => missedItem(l, r)).join("");
   return `<article class="plan ${i === 0 ? "best" : ""}">
     <div class="plan-top">
-      <div><h3>대안 ${i + 1}${i === 0 ? " · 추천" : ""}</h3>
+      <div><div class="plan-name"><h3>대안 ${i + 1}${i === 0 ? " · 추천" : ""}</h3>
+        ${sameDay ? '<b class="day-tag" title="그날 학교에 남아 다른 교시에 이 수업을 합니다">같은 날</b>' : ""}</div>
         <div class="load">교체 ${done}건 · 수업 ${plan.steps.reduce((n, s) => n + s.length, 0)}개 이동 · 부담 ${plan.score}</div></div>
       <span class="chip ${miss || planIsHard(plan) ? "part" : "full"}">${miss ? `${fixed}/${fixed + miss} 해결` : planIsHard(plan) ? "전부 해결 · 부담 큼" : "전부 해결"}</span>
     </div>
