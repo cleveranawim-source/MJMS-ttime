@@ -1,3 +1,6 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>수업 교체 도우미</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -147,6 +150,10 @@
   .swap-head{display:flex; align-items:baseline; gap:8px; margin-bottom:7px}
   .swap-head b{font-size:14.5px; font-weight:600}
   .swap-head span{font-size:12px; color:var(--ink-faint)}
+  .swap-head .tag{
+    font-size:10.5px; font-weight:600; color:var(--ink-soft); padding:2px 6px;
+    background:var(--surface-2); border:1px solid var(--line-strong); border-radius:2px;
+  }
   .moves{
     display:grid; grid-template-columns:auto minmax(0,1fr) auto minmax(0,1fr);
     gap:6px 9px; align-items:baseline; padding:9px 11px; border-radius:3px;
@@ -314,8 +321,16 @@
 
   @media (max-width:640px){
     .wrap{padding:24px 15px 70px}
-    .console{padding:14px}
+    /* 조건 바가 화면 절반을 덮으므로 좁은 화면에서는 붙여 두지 않는다 */
+    .console{padding:14px; position:static}
     .plans{grid-template-columns:1fr}
+    .console-row{align-items:stretch}
+    /* 칸 너비를 고르게 — 마지막 줄만 늘어나 보이지 않도록 격자로 깐다 */
+    .periods{display:grid; grid-template-columns:repeat(4,1fr)}
+    .periods .sep{display:none}
+    .pchip.all{grid-column:1/-1}
+    .pchip > span{min-width:0}
+    .go{width:100%}
   }
   @media (prefers-reduced-motion:reduce){*{transition:none!important; animation:none!important}}
 </style>
@@ -352,7 +367,8 @@
       </div>
       <button class="go" id="go" type="button">경우의 수 찾기</button>
     </div>
-    <p class="form-help">결강 수업과 <b>같은 반의 다른 수업</b>이 교시를 통째로 맞바꿉니다. 두 선생님 모두 자기 과목을 그대로 가르치므로 보강이 생기지 않습니다.</p>
+    <p class="form-help">결강 수업과 <b>같은 반의 다른 수업</b>이 교시를 통째로 맞바꿉니다. 두 선생님 모두 자기 과목을 그대로 가르치므로 보강이 생기지 않습니다.
+      고르지 않은 교시는 <b>학교에 계신 것으로 봅니다</b> — 지각·조퇴라면 그 시간으로도 수업을 옮깁니다. 하루 종일 비우신다면 <b>하루 전체</b>를 고르세요.</p>
   </section>
 
   <div id="out"></div>
@@ -814,6 +830,7 @@ function optionsFor(unit, temp, usedIds, limit, sel) {
       lessonId: lesson.id, classId: lesson.classId, className: cls(lesson.classId),
       kind: "cycle", length: chain.length, own: 1, fixed: 1,
       label: chain.length === 2 ? "두 수업 맞교환" : chain.length + "개 수업 자리 이동",
+      sameDay: slots.every(sl => sl.day === lesson.day),
       slots, avoided, strain, heavy,
       score: score + strain.length * 6 + heavy * 18,   // 부담되는 안은 뒤로
       usedIds: chain.slice(1).map(x => x.id),
@@ -882,6 +899,7 @@ function optionsFor(unit, temp, usedIds, limit, sel) {
         kind: "block", length: 4, own: block.length,
         fixed: block.filter(x => inWindow(x.day, x.period, sel)).length,
         label: block[0].subject + " 블록 통째로 옮기고 두 수업이 그 자리로",
+        sameDay: slots.every(sl => sl.day === lesson.day),
         slots, avoided, strain, heavy,
         score: score + strain.length * 6 + heavy * 18,
         usedIds: block.concat(pair).filter(x => !own.has(x.id)).map(x => x.id),
@@ -1007,7 +1025,7 @@ function planText(plan, r) {
   const head = r.absent.name + " 선생님 " + r.sel.day + "요일 " + periodLabel(r.sel) + " " + r.sel.reason
     + (plan.steps.length ? " · 수업 교체안" : " · 보강 요청");
   const rows = plan.steps.map((s, i) => [
-    (i + 1) + ". " + s.className + " — " + s.label,
+    (i + 1) + ". " + s.className + " — " + s.label + (s.sameDay ? " (같은 날 안에서)" : ""),
     ...s.slots.map(sl => "   " + sl.day + " " + sl.period + "교시: " +
       sl.beforeSubject + "(" + sl.beforeTeacher + ") → " + sl.afterSubject + "(" + sl.afterTeacher + ")"),
   ].join("\n"));
@@ -1093,7 +1111,7 @@ function planCard(plan, i, r) {
   const steps = plan.steps.map((s, n) => `
     <li><span class="idx">${n + 1}</span><div class="swap">
       <div class="swap-head"><b>${esc(s.className)}</b>
-        <span>${esc(s.label)}</span></div>
+        <span>${esc(s.label)}</span>${s.sameDay ? '<b class="tag" title="그날 학교에 남아 다른 교시에 이 수업을 합니다">같은 날</b>' : ""}</div>
       <div class="moves">
         ${s.slots.map(sl => `
           <span class="mv-slot">${sl.day} ${sl.period}</span>
