@@ -367,8 +367,8 @@
     <b>검사 항목</b> — 양쪽 교사의 같은 시간 수업 중복, 수업 불가 교시, 근무 가능 요일, 하루 최대 수업, 최대 연속수업을 가상 시간표에서 다시 검사합니다.
     하루 최대는 학교 규칙을 따릅니다 — <b>월·수·금 5시간, 화·목 6시간</b>.<br>
     <b>부담 점수</b> — 낮을수록 좋습니다. 두 수업의 요일이 가까울수록, 두 교사의 기피 교시를 건드리지 않을수록 낮아집니다.<br>
-    <b>부담 표시</b> — 교체 전후를 비교해 연속 3시간 이상이 새로 생기거나 하루 수업이 늘어 한도에 닿으면 적어 둡니다.
-    그중 <b>연속 4시간, 하루 6시간을 넘거나 하루 한도가 5시간 이상인 분이 한도까지 차는 경우</b>를 무리한 교체로 보고 보강을 권합니다.<br>
+    <b>부담 표시</b> — 교체 전후를 비교해 <b>연속 4시간</b>이 새로 생기거나 하루 수업이 늘어 한도에 닿으면 적어 둡니다.
+    연속 3시간은 정상으로 보고 표시하지 않습니다. <b>한 안에서 하루 한도까지 차는 선생님이 두 분 이상</b>이면 무리한 교체로 보고 보강을 권합니다.<br>
     <b>보강 후보</b> — 그 교시에 수업이 없고 일일·연속 한도에 걸리지 않는 선생님입니다. 담당 과목이나 총 시수는 따지지 않아
     시수가 많아도 그 시간에 비어 있으면 후보가 됩니다. <b>같은 반, 그 다음 같은 학년</b>에 들어가는 선생님을 앞에 둡니다.
     부장교사와 신고 당사자는 제외합니다.<br>
@@ -474,7 +474,7 @@ const stateAt = (teacher, day, period) => teacher.slotStates[day + "-" + period]
    월·수·금은 6교시, 화·목은 7교시여서 한도가 다르다.
    자료에 들어 있던 교사별 일일 최대는 현재 시간표에서 뽑아낸 추정값이라 쓰지 않는다. */
 const DAILY_CAP = { 월: 5, 화: 6, 수: 5, 목: 6, 금: 5 };
-const CONSEC_CAP = 3;                    // 연달아 설 수 있는 최대 시간
+const CONSEC_CAP = 4;                    // 연달아 설 수 있는 최대 시간. 3연강은 정상으로 본다.
 const capOf = day => DAILY_CAP[day] || 5;
 
 /* 하루에 몰아서 근무하는 강사처럼 이미 한도를 넘겨 짜인 경우가 있다.
@@ -501,7 +501,7 @@ function strainOf(chain, temp, usedIds, add, omit, sel) {
     const before = periodsOn(tid, day, temp, usedIds, sel);
     const after = periodsOn(tid, day, add, omit, sel);
     const beforeRun = consecutiveMax(before), afterRun = consecutiveMax(after);
-    const runUp = afterRun >= 3 && afterRun > beforeRun;                    // 3연속 이상이 새로 생김
+    const runUp = afterRun >= 4 && afterRun > beforeRun;                    // 4연속이 새로 생김
     const cap = capFor(tid, day);
     const loadUp = after.length > before.length && after.length >= cap;   // 하루 한도까지 참
     if (!runUp && !loadUp) continue;
@@ -509,7 +509,7 @@ function strainOf(chain, temp, usedIds, add, omit, sel) {
       teacher: t.name, day, runUp, loadUp,
       run: afterRun, maxRun: consecFor(tid, day),
       count: after.length, maxCount: cap,
-      hard: afterRun >= 4 || loadUp,
+      heavy: loadUp,          // 하루가 한도까지 찬 경우. 무리 판정은 안 전체를 보고 따로 한다.
     });
   }
   return notes;
@@ -565,11 +565,15 @@ function coverLabel(f) {
   return esc(f.name) + (inner ? "(" + esc(inner) + ")" : "");
 }
 
-/* 무리로 본 실제 사유. 연속 3시간은 표시만 하고 사유가 되지 않는다. */
+/* 무리로 본 사유는 하루 부담이다. 연속 4시간은 허용 범위라 표시만 하고 사유가 되지 않는다. */
+/* 무리한 교체 — 한 안에서 하루 한도까지 차는 교사가 둘 이상 나올 때.
+   교체 자체는 규칙을 지키지만 여러 사람이 동시에 빡빡해지는 안이다. */
+const heavyTeachers = plan =>
+  [...new Set(plan.steps.flatMap(s => s.strain || []).filter(n => n.heavy).map(n => n.teacher))];
+const planIsHard = plan => heavyTeachers(plan).length >= 2;
+
 function hardReason(n) {
-  if (n.run >= 4) return n.teacher + " 선생님 " + n.day + "요일 연속 " + n.run + "시간";
-  if (n.count >= 6) return n.teacher + " 선생님 " + n.day + "요일 하루 " + n.count + "시간";
-  return n.teacher + " 선생님 " + n.day + "요일 하루가 " + n.count + "시간(한도 " + n.maxCount + ")으로 꽉 참";
+  return n.teacher + " 선생님 " + n.day + "요일 " + n.count + "시간(한도 " + n.maxCount + ")";
 }
 
 const CYCLE_MAX = 3;   // 한 회전에 참여하는 수업 수 상한
@@ -636,11 +640,11 @@ function optionsFor(lesson, temp, usedIds, limit, sel) {
     });
 
     const strain = strainOf(chain, temp, usedIds, add, omit, sel);
-    const hard = strain.filter(n => n.hard).length;
+    const heavy = strain.filter(n => n.heavy).length;
     found.push({
       lessonId: lesson.id, classId: lesson.classId, className: cls(lesson.classId),
-      length: chain.length, slots, avoided, strain, hard,
-      score: score + strain.length * 8 + hard * 20,   // 부담되는 안은 뒤로
+      length: chain.length, slots, avoided, strain, heavy,
+      score: score + strain.length * 6 + heavy * 18,   // 부담되는 안은 뒤로
       usedIds: chain.slice(1).map(x => x.id),
       temp: add.slice(temp.length),
     });
@@ -765,9 +769,10 @@ function planText(plan, r) {
     return "· " + l.day + " " + l.period + "교시 " + cls(l.classId) + " " + l.subject + " — " + missReason(l) +
       (free ? " (이 시간 공강: " + free + ")" : "");
   });
-  const hardNotes = plan.steps.flatMap(s => s.strain || []).filter(n => n.hard);
+  const hardNotes = planIsHard(plan)
+    ? plan.steps.flatMap(s => s.strain || []).filter(n => n.heavy) : [];
   const advise = hardNotes.length
-    ? ["", "[권고] " + hardNotes.map(hardReason).join(". ") + ".",
+    ? ["", "[권고] " + heavyTeachers(plan).join("·") + " 선생님의 하루가 한도까지 찹니다 — " + hardNotes.map(hardReason).join(", ") + ".",
        "아래 공강 교사에게 보강을 부탁하는 편이 나을 수 있습니다.",
        ...freeTeachersAt(r.affected[0].day, r.affected[0].period, r.sel, r.affected[0].classId)
          .filter(f => !hardNotes.some(n => n.teacher === f.name)).slice(0, 5)
@@ -787,16 +792,17 @@ function strainLine(n) {
 }
 
 function adviseBlock(plan, r) {
-  const hardNotes = plan.steps.flatMap(s => s.strain || []).filter(n => n.hard);
-  if (!hardNotes.length) return "";
+  if (!planIsHard(plan)) return "";
+  const hardNotes = plan.steps.flatMap(s => s.strain || []).filter(n => n.heavy);
   const slot = r.affected[0];
   const strained = new Set(plan.steps.flatMap(s => s.strain || []).map(n => n.teacher));
   const free = freeTeachersAt(slot.day, slot.period, r.sel, slot.classId)
     .filter(f => !strained.has(f.name)).slice(0, 5);
   const who = free.map(coverLabel).join(", ");
   return '<div class="advise">'
-    + "<strong>무리한 교체입니다</strong>"
-    + "<p>" + esc(hardNotes.map(hardReason).join(". ")) + ". "
+    + "<strong>여러 선생님이 한도까지 찹니다</strong>"
+    + "<p>이 안은 <b>" + esc(heavyTeachers(plan).join("·")) + "</b> 선생님의 하루를 한도까지 채웁니다 — "
+    + esc(hardNotes.map(hardReason).join(", ")) + ". "
     + "교체를 밀어붙이기보다, " + slot.day + " " + slot.period + "교시에 공강인 선생님께 보강을 부탁하는 편이 나을 수 있습니다."
     + (who ? "<br><b>그 시간 공강</b> — " + who : " 다만 그 시간에 공강인 선생님이 없습니다.")
     + "</p></div>";
@@ -815,7 +821,7 @@ function planCard(plan, i, r) {
           <span class="mv-arw" aria-hidden="true">→</span>
           <span class="mv-now"><b>${esc(sl.afterSubject)}</b> <i>${esc(sl.afterTeacher)}</i>${sl.afterRoom ? ` <span class="room">${esc(sl.afterRoom)}</span>` : ""}</span>`).join("")}
       </div>
-      ${(s.strain || []).map(n => `<span class="strain ${n.hard ? "hard" : ""}">${n.hard ? "！" : "·"} ${strainLine(n)}</span>`).join("")}
+      ${(s.strain || []).map(n => `<span class="strain ${n.heavy ? "hard" : ""}">${n.heavy ? "！" : "·"} ${strainLine(n)}</span>`).join("")}
     </div></li>`).join("");
   const missed = plan.missed.map(l => {
     const free = freeTeachersAt(l.day, l.period, r.sel, l.classId).slice(0, 4);
@@ -832,7 +838,7 @@ function planCard(plan, i, r) {
     <div class="plan-top">
       <div><h3>대안 ${i + 1}${i === 0 ? " · 추천" : ""}</h3>
         <div class="load">교체 ${done}건 · 수업 ${plan.steps.reduce((n, s) => n + s.length, 0)}개 이동 · 부담 ${plan.score}</div></div>
-      <span class="chip ${miss ? "part" : plan.steps.some(s => s.hard) ? "part" : "full"}">${miss ? `${done}/${done + miss} 해결` : plan.steps.some(s => s.hard) ? "전부 해결 · 부담 큼" : "전부 해결"}</span>
+      <span class="chip ${miss || planIsHard(plan) ? "part" : "full"}">${miss ? `${done}/${done + miss} 해결` : planIsHard(plan) ? "전부 해결 · 부담 큼" : "전부 해결"}</span>
     </div>
     ${weekMap(plan, r)}
     <ol class="steps">${steps}${missed}</ol>
