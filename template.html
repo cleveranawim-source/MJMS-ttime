@@ -439,6 +439,8 @@ const inWindow = (day, period, sel) => {
   if (v === "all") return true;
   if (v.startsWith("from-")) return period >= Number(v.slice(5));   // N교시부터 끝까지
   if (v.startsWith("to-")) return period <= Number(v.slice(3));     // 처음부터 N교시까지
+  const dash = v.indexOf("-");                                       // "2-4" — 2교시부터 4교시까지
+  if (dash > 0) return period >= Number(v.slice(0, dash)) && period <= Number(v.slice(dash + 1));
   return Number(v) === period;
 };
 
@@ -820,6 +822,8 @@ const periodLabel = v => {
   if (t === "all") return "하루 전체";
   if (t.startsWith("from-")) return Number(t.slice(5)) + "교시부터 끝까지";
   if (t.startsWith("to-")) return Number(t.slice(3)) + "교시까지";
+  const dash = t.indexOf("-");
+  if (dash > 0) return t.slice(0, dash) + "~" + t.slice(dash + 1) + "교시";
   return t + "교시";
 };
 
@@ -1051,10 +1055,16 @@ function fillPeriods() {
     .map(p => `<option value="from-${p}">${p}교시부터 끝까지</option>`).join("");
   const to = Array.from({ length: Math.max(0, d.periods - 1) }, (_, i) => i + 1)
     .map(p => `<option value="to-${p}">${p}교시까지</option>`).join("");
+  /* 첫 교시에서 시작하지도, 끝 교시까지 가지도 않는 토막 — 나머지는 위 두 묶음이 이미 담고 있다 */
+  let mid = "";
+  for (let x = 2; x <= d.periods - 2; x += 1) {
+    for (let y = x + 1; y <= d.periods - 1; y += 1) mid += `<option value="${x}-${y}">${x}~${y}교시</option>`;
+  }
   $("period").innerHTML = `<option value="all">하루 전체</option>
     <optgroup label="한 교시만">${one}</optgroup>
     <optgroup label="오전 조퇴·지각">${to}</optgroup>
-    <optgroup label="오후 출장·조퇴">${from}</optgroup>`;
+    <optgroup label="오후 출장·조퇴">${from}</optgroup>
+    <optgroup label="중간에 낀 연수·회의">${mid}</optgroup>`;
   if (keep && [...$("period").options].some(o => o.value === keep)) $("period").value = keep;
 }
 fillPeriods();
