@@ -288,8 +288,6 @@
   .hint{font-size:12px; color:var(--ink-faint); padding:0 18px 16px; margin:0}
   .hint a{color:var(--cover); font-weight:600}
 
-  .note{margin-top:44px; padding-top:20px; border-top:1px solid var(--line); color:var(--ink-faint); font-size:12.5px; line-height:1.75}
-  .note b{color:var(--ink-soft); font-weight:600}
 
   @media (max-width:640px){
     .wrap{padding:24px 15px 70px}
@@ -359,23 +357,6 @@
     <p class="hint" id="report-hint"></p>
   </dialog>
 
-  <p class="note">
-    <b>교체하지 않는 수업</b> — 강사가 맡는 <b>운동</b>과 <b>목·금 중국어</b>는 대체가 어려워 교체 대상에서 제외합니다.
-    부장교사의 <b>목요일 1교시</b>, 이승열 선생님의 <b>목요일 1·2·3교시</b>, 심재경 선생님의 <b>목요일 2·3교시</b>는 반드시 비워 두므로 그 시간으로는 어떤 수업도 옮기지 않습니다.<br>
-    <b>교환 규칙</b> — 결강 수업과 <b>같은 반의 다른 수업</b>이 교시를 통째로 맞바꿉니다. 두 수업 모두 담당 교사가 그대로 자기 과목을 가르치므로 보강이 생기지 않고, 학급이 주당 받는 과목 수도 변하지 않습니다.
-    창체·고정수업과 2시간 연강은 쪼갤 수 없어 상대 후보에서 뺍니다.<br>
-    <b>검사 항목</b> — 양쪽 교사의 같은 시간 수업 중복, 수업 불가 교시, 근무 가능 요일, 하루 최대 수업, 최대 연속수업을 가상 시간표에서 다시 검사합니다.
-    하루 최대는 학교 규칙을 따릅니다 — <b>월·수·금 5시간, 화·목 6시간</b>.
-    교과교실을 두 분이 나눠 쓰는 곳이 있어 <b>교실이 그 시간에 비어 있는지</b>도 함께 봅니다.
-    체육·운동은 운동장과 체육관에서 하므로 교실을 따지지 않습니다.<br>
-    <b>부담 점수</b> — 낮을수록 좋습니다. 두 수업의 요일이 가까울수록, 두 교사의 기피 교시를 건드리지 않을수록 낮아집니다.<br>
-    <b>부담 표시</b> — 교체 전후를 비교해 <b>연속 4시간</b>이 새로 생기거나 하루 수업이 늘어 한도에 닿으면 적어 둡니다.
-    연속 3시간은 정상으로 보고 표시하지 않습니다. <b>한 안에서 하루 한도까지 차는 선생님이 두 분 이상</b>이면 무리한 교체로 보고 보강을 권합니다.<br>
-    <b>보강 후보</b> — 그 교시에 수업이 없고 일일·연속 한도에 걸리지 않는 선생님입니다. 담당 과목이나 총 시수는 따지지 않아
-    시수가 많아도 그 시간에 비어 있으면 후보가 됩니다. <b>같은 반, 그 다음 같은 학년</b>에 들어가는 선생님을 앞에 둡니다.
-    부장교사와 신고 당사자는 제외합니다.<br>
-    <b>주의</b> — 결과는 임시 계획입니다. 정규 시간표는 바뀌지 않으며, 실제 적용 전 양쪽 선생님의 동의를 받으세요.
-  </p>
 </div>
 
 <script>/*__HWPXFILL__*/</script>
@@ -436,6 +417,15 @@ for (const l of DATA.schedule) {
   if (l.room) byRoomSlot.set(l.room + "|" + l.day + "-" + l.period, l);
 }
 
+/* 미술은 두 시간을 이어서 하는 블록 수업이다. 두 칸을 한 덩어리로 다루려고 묶어 둔다. */
+const byBlock = new Map();       // blockId → 수업[] (교시 순)
+for (const l of DATA.schedule) {
+  if (!l.blockId) continue;
+  if (!byBlock.has(l.blockId)) byBlock.set(l.blockId, []);
+  byBlock.get(l.blockId).push(l);
+}
+for (const g of byBlock.values()) g.sort((a, b) => a.period - b.period);
+
 const consecutiveMax = periods => {
   const s = [...new Set(periods)].sort((a, b) => a - b);
   let max = 0, run = 0, prev = -100;
@@ -489,13 +479,15 @@ const consecFor = (teacherId, day) =>
   Math.max(CONSEC_CAP, consecutiveMax((byTeacherDay.get(teacherId + "|" + day) || []).map(l => l.period)));
 /* 이 회전이 각 교사의 하루를 얼마나 무겁게 만드는지, 교체 전후를 비교한다.
    한도를 넘는 안은 이미 걸러졌으므로 여기서 잡히는 것은 "합법이지만 부담되는" 경우다. */
-function strainOf(chain, temp, usedIds, add, omit, sel) {
-  const touched = new Set();
-  for (let i = 0; i < chain.length; i += 1) {
-    const to = chain[(i + 1) % chain.length];
-    touched.add(chain[i].teacherId + "|" + chain[i].day);   // 빠져나가는 날
-    touched.add(chain[i].teacherId + "|" + to.day);         // 새로 들어가는 날
+const touchedDays = moves => {
+  const out = new Set();
+  for (const m of moves) {
+    out.add(m.teacherId + "|" + m.from);   // 빠져나가는 날
+    out.add(m.teacherId + "|" + m.to);     // 새로 들어가는 날
   }
+  return out;
+};
+function strainOf(touched, temp, usedIds, add, omit, sel) {
   const notes = [];
   for (const key of touched) {
     const at = key.lastIndexOf("|");
@@ -586,22 +578,31 @@ const CYCLE_MAX = 3;   // 한 회전에 참여하는 수업 수 상한
    반의 모든 교시가 차 있으므로 옮기면 반드시 누군가를 밀어내고, 그 사슬은 결국
    원래 자리로 돌아온다. 즉 언제나 회전이다. 길이 2면 두 수업의 맞교환이고,
    3이면 세 수업이 자리를 한 칸씩 돈다. 어느 쪽이든 모든 교사가 자기 과목을
-   그대로 가르치므로 보강이 생기지 않고, 반이 주당 받는 과목 수도 변하지 않는다. */
-function optionsFor(lesson, temp, usedIds, limit, sel) {
-  if (lesson.blockId || lesson.locked || lesson.type === "special") return [];   // 한 시간만 떼어낼 수 없다
-  if (noSwap(lesson)) return [];                                                 // 강사 수업은 교체하지 않는다
+   그대로 가르치므로 보강이 생기지 않고, 반이 주당 받는 과목 수도 변하지 않는다.
+
+   미술 블록은 두 시간이 한 덩어리라 회전에 낱개로 섞을 수 없다. 대신 두 칸을 통째로
+   들어 옮기고, 그 자리에는 같은 반에서 붙어 있던 다른 두 수업이 들어온다. 블록은
+   언제나 이어진 채로 움직이므로 수업이 쪼개지지 않으면서 타 과목과 교체된다. */
+function optionsFor(unit, temp, usedIds, limit, sel) {
+  const lesson = unit.head;
+  const own = new Set(unit.lessons.map(x => x.id));
   const absent = T.get(sel.teacherId);
+  if (unit.lessons.some(x => x.locked || x.type === "special")) return [];   // 창체·고정수업은 옮길 수 없다
+  if (unit.lessons.some(x => noSwap(x))) return [];                          // 강사 수업은 교체하지 않는다
+
   const pool = (byClass.get(lesson.classId) || []).filter(x =>
-    x.id !== lesson.id && !usedIds.has(x.id) &&
-    !(x.type === "special" || x.locked || x.blockId) &&   // 창체·고정·연강은 쪼갤 수 없다
-    !noSwap(x) &&                                        // 강사 수업은 건드리지 않는다
+    !own.has(x.id) && !usedIds.has(x.id) &&
+    !(x.type === "special" || x.locked) &&
+    !noSwap(x) &&
     x.teacherId && x.teacherId !== absent.id &&
     !inWindow(x.day, x.period, sel));                     // 결강 시간대로는 옮길 수 없다
+  const singles = pool.filter(x => !x.blockId);           // 회전에 낄 수 있는 낱개 수업
+  const fixed = unit.lessons.filter(x => inWindow(x.day, x.period, sel)).length;
 
   const weigh = state => state === "avoid" ? 12 : state === "prefer" ? -6 : 0;
   const found = [];
 
-  /* item 수업이 (day, period)로 갈 수 있는가. leaving은 이번 회전으로 자리를 비우는 수업들. */
+  /* item 수업이 (day, period)로 갈 수 있는가. leaving은 이번 교체로 자리를 비우는 수업들. */
   function canGo(item, day, period, leaving) {
     const t = T.get(item.teacherId);
     if (!t || !t.allowedDays.includes(day)) return false;
@@ -617,6 +618,15 @@ function optionsFor(lesson, temp, usedIds, limit, sel) {
     }
     return true;
   }
+
+  /* before 자리에 after 수업이 들어온다 — 화면과 신고서가 함께 쓰는 한 줄 */
+  const mkSlot = (before, after) => ({
+    day: before.day, period: before.period,
+    beforeSubject: before.subject, beforeTeacher: T.get(before.teacherId).name,
+    beforeRoom: before.room || "",
+    afterSubject: after.subject, afterTeacher: T.get(after.teacherId).name,
+    afterRoom: after.room || "",
+  });
 
   /* 사슬의 마지막 수업을 결강 교시로 되돌려 회전을 닫는다 */
   function close(chain) {
@@ -641,20 +651,18 @@ function optionsFor(lesson, temp, usedIds, limit, sel) {
       const st = stateAt(T.get(after.teacherId), before.day, before.period);
       if (st === "avoid") avoided = true;
       score += weigh(st) + Math.abs(DAY_IX.get(before.day) - DAY_IX.get(after.day)) * 3;
-      return {
-        day: before.day, period: before.period,
-        beforeSubject: before.subject, beforeTeacher: T.get(before.teacherId).name,
-        beforeRoom: before.room || "",
-        afterSubject: after.subject, afterTeacher: T.get(after.teacherId).name,
-        afterRoom: after.room || "",
-      };
+      return mkSlot(before, after);
     });
 
-    const strain = strainOf(chain, temp, usedIds, add, omit, sel);
+    const strain = strainOf(touchedDays(chain.map((x, i) =>
+      ({ teacherId: x.teacherId, from: x.day, to: chain[(i + 1) % chain.length].day }))),
+      temp, usedIds, add, omit, sel);
     const heavy = strain.filter(n => n.heavy).length;
     found.push({
       lessonId: lesson.id, classId: lesson.classId, className: cls(lesson.classId),
-      length: chain.length, slots, avoided, strain, heavy,
+      kind: "cycle", length: chain.length, own: 1, fixed,
+      label: chain.length === 2 ? "두 수업 맞교환" : chain.length + "개 수업 자리 이동",
+      slots, avoided, strain, heavy,
       score: score + strain.length * 6 + heavy * 18,   // 부담되는 안은 뒤로
       usedIds: chain.slice(1).map(x => x.id),
       temp: add.slice(temp.length),
@@ -666,14 +674,96 @@ function optionsFor(lesson, temp, usedIds, limit, sel) {
     if (chain.length >= CYCLE_MAX) return;
     const prev = chain[chain.length - 1];
     const leaving = new Set(chain.map(x => x.id));
-    for (const cand of pool) {
+    for (const cand of singles) {
       if (chain.some(x => x.id === cand.id)) continue;
       const next = new Set(leaving); next.add(cand.id);
       if (!canGo(prev, cand.day, cand.period, next)) continue;   // prev가 cand의 자리로 간다
       extend(chain.concat(cand));
     }
   }
-  extend([lesson]);
+
+  /* 블록 두 칸과 붙어 있는 낱개 두 칸이 통째로 자리를 맞바꾼다.
+     블록은 언제나 두 칸이 이어진 채로 움직이므로 수업이 쪼개지지 않는다.
+     pair는 같은 요일에 연달아 붙은 두 수업이고 교시 순으로 들어온다. */
+  function exchange(block, pair) {
+    const leaving = new Set(block.concat(pair).map(x => x.id));
+    for (const s of pair) if (!canGo(block[0], s.day, s.period, leaving)) return;
+
+    for (const flip of [0, 1]) {   // 두 수업을 블록이 비운 두 칸에 넣는 두 가지 배치
+      const to = flip ? [block[1], block[0]] : [block[0], block[1]];
+      if (!canGo(pair[0], to[0].day, to[0].period, leaving)) continue;
+      if (!canGo(pair[1], to[1].day, to[1].period, leaving)) continue;
+
+      const moves = [
+        { from: block[0], to: pair[0] }, { from: block[1], to: pair[1] },
+        { from: pair[0], to: to[0] }, { from: pair[1], to: to[1] },
+      ];
+      const add = temp.concat(moves.map(m =>
+        ({ teacherId: m.from.teacherId, day: m.to.day, period: m.to.period, room: m.from.room || "" })));
+      const omit = new Set(usedIds);
+      for (const x of block.concat(pair)) omit.add(x.id);
+      let ok = true;
+      for (const id of new Set(moves.map(m => m.from.teacherId))) {
+        if (!loadOk(T.get(id), add, omit, sel)) { ok = false; break; }
+      }
+      if (!ok) continue;
+
+      let score = 60, avoided = false;   // 네 수업이 움직이므로 낱개 회전보다 뒤에 둔다
+      for (const m of moves) {
+        const st = stateAt(T.get(m.from.teacherId), m.to.day, m.to.period);
+        if (st === "avoid") avoided = true;
+        score += weigh(st) + Math.abs(DAY_IX.get(m.from.day) - DAY_IX.get(m.to.day)) * 3;
+      }
+
+      const bSlots = [mkSlot(block[0], flip ? pair[1] : pair[0]), mkSlot(block[1], flip ? pair[0] : pair[1])];
+      const pSlots = [mkSlot(pair[0], block[0]), mkSlot(pair[1], block[1])];
+      const mine = pair.findIndex(x => own.has(x.id));   // 결강 수업이 낱개 쪽이면 그 자리를 앞세운다
+      const slots = mine < 0 ? bSlots.concat(pSlots) : [pSlots[mine], pSlots[1 - mine]].concat(bSlots);
+
+      const strain = strainOf(touchedDays(moves.map(m =>
+        ({ teacherId: m.from.teacherId, from: m.from.day, to: m.to.day }))),
+        temp, usedIds, add, omit, sel);
+      const heavy = strain.filter(n => n.heavy).length;
+      found.push({
+        lessonId: lesson.id, classId: lesson.classId, className: cls(lesson.classId),
+        kind: "block", length: 4, own: unit.lessons.length, fixed,
+        label: block[0].subject + " 블록 통째로 옮기고 두 수업이 그 자리로",
+        slots, avoided, strain, heavy,
+        score: score + strain.length * 6 + heavy * 18,
+        usedIds: block.concat(pair).filter(x => !own.has(x.id)).map(x => x.id),
+        temp: add.slice(temp.length),
+      });
+    }
+  }
+
+  /* 같은 반의 블록 — 두 칸 모두 손댈 수 있을 때만 후보다 */
+  function blockInPool() {
+    for (const x of pool) {
+      if (!x.blockId) continue;
+      const g = byBlock.get(x.blockId);
+      if (g && g.length === 2 && g.every(y => pool.includes(y))) return g;
+    }
+    return null;
+  }
+
+  if (unit.lessons.length > 1) {
+    // 결강한 쪽이 블록이다 — 붙어 있는 낱개 두 칸을 찾아 통째로 옮긴다
+    for (const s1 of singles) {
+      const s2 = byClassSlot.get(s1.classId + "|" + s1.day + "-" + (s1.period + 1));
+      if (s2 && singles.includes(s2)) exchange(unit.lessons, [s1, s2]);
+    }
+  } else {
+    extend([lesson]);
+    // 결강 수업이 낱개다 — 같은 반 블록을 결강 자리로 끌어올 수도 있다
+    const block = blockInPool();
+    if (block) {
+      for (const step of [1, -1]) {
+        const nb = byClassSlot.get(lesson.classId + "|" + lesson.day + "-" + (lesson.period + step));
+        if (!nb || !singles.includes(nb)) continue;
+        exchange(block, step > 0 ? [lesson, nb] : [nb, lesson]);
+      }
+    }
+  }
 
   found.sort((a, b) => a.score - b.score || a.length - b.length);
   const seen = new Set(), unique = [];
@@ -692,27 +782,36 @@ function solve(sel) {
   const affected = (byTeacher.get(sel.teacherId) || [])
     .filter(l => inWindow(l.day, l.period, sel))
     .sort((a, b) => a.period - b.period);
-  const perLesson = affected.map(l => ({ lesson: l, options: optionsFor(l, [], new Set(), 8, sel) }));
+  /* 블록은 한쪽 교시만 결강에 걸려도 통째로 다룬다 — 그래야 수업이 쪼개지지 않는다 */
+  const units = [], seenBlock = new Set();
+  for (const l of affected) {
+    if (!l.blockId) { units.push({ head: l, lessons: [l] }); continue; }
+    if (seenBlock.has(l.blockId)) continue;
+    seenBlock.add(l.blockId);
+    const g = byBlock.get(l.blockId) || [l];
+    units.push({ head: g[0], lessons: g });
+  }
+  const perLesson = units.map(u => ({ unit: u, lesson: u.head, options: optionsFor(u, [], new Set(), 8, sel) }));
 
   const plans = [];
   let nodes = 0;
   function walk(i, steps, temp, used, score, missed) {
     nodes += 1;
     if (nodes > NODE_CAP || plans.length >= PLAN_CAP) return;
-    if (i >= affected.length) {
+    if (i >= units.length) {
       if (steps.length) plans.push({ steps: steps.slice(), missed: missed.slice(), score });
       return;
     }
-    const lesson = affected[i];
-    for (const o of optionsFor(lesson, temp, used, 6, sel)) {
+    const unit = units[i];
+    for (const o of optionsFor(unit, temp, used, 6, sel)) {
       const nextUsed = new Set(used);
       for (const id of o.usedIds) nextUsed.add(id);
       walk(i + 1, steps.concat(o), temp.concat(o.temp), nextUsed, score + o.score, missed);
     }
     // 이 수업은 짝을 못 찾은 채로 두고 나머지를 계속 — 부분 조합
-    walk(i + 1, steps, temp, used, score, missed.concat(lesson));
+    walk(i + 1, steps, temp, used, score, missed.concat(unit.lessons.filter(l => inWindow(l.day, l.period, sel))));
   }
-  if (affected.length) walk(0, [], [], new Set(), 0, []);
+  if (units.length) walk(0, [], [], new Set(), 0, []);
 
   const seen = new Set(), unique = [];
   plans.sort((a, b) => a.missed.length - b.missed.length || a.score - b.score);
@@ -742,7 +841,7 @@ function weekMap(plan, r) {
   const mark = new Map();
   for (const l of byTeacher.get(r.sel.teacherId) || []) mark.set(l.day + "-" + l.period, { k: "busy" });
   plan.steps.forEach((s, i) => {
-    s.slots.forEach((sl, j) => mark.set(sl.day + "-" + sl.period, { k: j === 0 ? "from" : "to", n: i + 1 }));
+    s.slots.forEach((sl, j) => mark.set(sl.day + "-" + sl.period, { k: j < (s.own || 1) ? "from" : "to", n: i + 1 }));
   });
   for (const l of plan.missed) mark.set(l.day + "-" + l.period, { k: "miss" });
 
@@ -759,15 +858,15 @@ function weekMap(plan, r) {
   return '<div class="week" role="img" aria-label="주간 시간표에서 교체가 일어나는 위치">' + html + "</div>";
 }
 
-const missReason = l => l.blockId ? "2시간 연강이라 한 시간만 옮길 수 없음"
-  : l.locked || l.type === "special" ? "고정수업이라 옮길 수 없음"
+const missReason = l => l.locked || l.type === "special" ? "고정수업이라 옮길 수 없음"
+  : l.blockId ? "블록을 통째로 옮길 두 칸이 같은 반에 없음"
   : noSwap(l) ? "강사가 맡는 수업이라 교체하지 않음"
   : "같은 반 안에 옮길 자리가 없음";
 
 function planText(plan, r) {
   const head = r.absent.name + " 선생님 " + r.sel.day + "요일 " + periodLabel(r.sel.period) + " " + r.sel.reason + " · 수업 교체안";
   const rows = plan.steps.map((s, i) => [
-    (i + 1) + ". " + s.className + " — " + (s.length === 2 ? "두 수업 맞교환" : s.length + "개 수업 자리 이동"),
+    (i + 1) + ". " + s.className + " — " + s.label,
     ...s.slots.map(sl => "   " + sl.day + " " + sl.period + "교시: " +
       sl.beforeSubject + "(" + sl.beforeTeacher + ") → " + sl.afterSubject + "(" + sl.afterTeacher + ")"),
   ].join("\n"));
@@ -821,10 +920,11 @@ function adviseBlock(plan, r) {
 
 function planCard(plan, i, r) {
   const done = plan.steps.length, miss = plan.missed.length;
+  const fixed = plan.steps.reduce((n, s) => n + (s.fixed || 1), 0);   // 해결한 결강 수업 수
   const steps = plan.steps.map((s, n) => `
     <li><span class="idx">${n + 1}</span><div class="swap">
       <div class="swap-head"><b>${esc(s.className)}</b>
-        <span>${s.length === 2 ? "두 수업 맞교환" : s.length + "개 수업 자리 이동"}</span></div>
+        <span>${esc(s.label)}</span></div>
       <div class="moves">
         ${s.slots.map(sl => `
           <span class="mv-slot">${sl.day} ${sl.period}</span>
@@ -849,7 +949,7 @@ function planCard(plan, i, r) {
     <div class="plan-top">
       <div><h3>대안 ${i + 1}${i === 0 ? " · 추천" : ""}</h3>
         <div class="load">교체 ${done}건 · 수업 ${plan.steps.reduce((n, s) => n + s.length, 0)}개 이동 · 부담 ${plan.score}</div></div>
-      <span class="chip ${miss || planIsHard(plan) ? "part" : "full"}">${miss ? `${done}/${done + miss} 해결` : planIsHard(plan) ? "전부 해결 · 부담 큼" : "전부 해결"}</span>
+      <span class="chip ${miss || planIsHard(plan) ? "part" : "full"}">${miss ? `${fixed}/${fixed + miss} 해결` : planIsHard(plan) ? "전부 해결 · 부담 큼" : "전부 해결"}</span>
     </div>
     ${weekMap(plan, r)}
     <ol class="steps">${steps}${missed}</ol>
@@ -868,10 +968,10 @@ function render(r) {
   const cand = r.perLesson.reduce((n, x) => n + x.options.length, 0);
   const lessons = r.perLesson.map(x => {
     const list = x.options.length
-      ? x.options.map(o => `<li><b>${o.length === 2 ? "맞교환" : o.length + "개 회전"}</b><span>${o.slots.slice(1).map(sl => sl.day + " " + sl.period + "교시 " + esc(sl.beforeSubject) + "(" + esc(sl.beforeTeacher) + ")").join(", ")}와 자리 이동${o.avoided ? " · 기피 교시 포함" : ""}</span></li>`).join("")
+      ? x.options.map(o => `<li><b>${o.kind === "block" ? "블록 통째" : o.length === 2 ? "맞교환" : o.length + "개 회전"}</b><span>${o.slots.slice(o.own).map(sl => sl.day + " " + sl.period + "교시 " + esc(sl.beforeSubject) + "(" + esc(sl.beforeTeacher) + ")").join(", ")}와 자리 이동${o.avoided ? " · 기피 교시 포함" : ""}</span></li>`).join("")
       : `<li><span>같은 반 안에 옮길 수 있는 자리가 없습니다.</span></li>`;
     return `<details class="lesson"${x.options.length ? "" : " open"}>
-      <summary><span class="per">${x.lesson.period}교시</span>
+      <summary><span class="per">${x.unit.lessons.map(l => l.period).join("–")}교시</span>
         <b>${esc(cls(x.lesson.classId))} · ${esc(x.lesson.subject)}</b>
         <span class="cnt">후보 ${x.options.length}</span></summary>
       <ul class="cands">${list}</ul></details>`;
