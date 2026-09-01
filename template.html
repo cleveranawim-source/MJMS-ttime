@@ -121,11 +121,36 @@
   }
   .idx.gap{background:var(--warn-fill); color:var(--warn); border-color:var(--warn-edge)}
   .swap{font-size:13.5px; line-height:1.55}
+  .swap-head{display:flex; align-items:baseline; gap:8px; margin-bottom:7px}
+  .swap-head b{font-size:14.5px; font-weight:600}
+  .swap-head span{font-size:12px; color:var(--ink-faint)}
+  .moves{
+    display:grid; grid-template-columns:auto minmax(0,1fr) auto minmax(0,1fr);
+    gap:6px 9px; align-items:baseline; padding:9px 11px; border-radius:3px;
+    background:var(--surface-2); border:1px solid var(--line);
+  }
+  .moves > span{min-width:0; overflow-wrap:anywhere}
+  .mv-slot{
+    font-family:"IBM Plex Mono",monospace; font-size:11.5px; font-variant-numeric:tabular-nums;
+    color:var(--ink-faint); white-space:nowrap;
+  }
+  .mv-was{font-size:12.5px; color:var(--ink-soft)}
+  .mv-arw{color:var(--ink-faint); font-size:12px}
+  .mv-now{font-size:12.5px}
+  .mv-now b{font-weight:600; color:var(--ink)}
+  .moves i{font-style:normal; color:var(--ink-faint)}
+  .mv-now i{color:var(--cover); font-weight:500}
   .swap b{font-weight:600}
   .swap .from-t{color:var(--absent); font-weight:600}
   .swap .to-t{color:var(--cover); font-weight:600}
   .swap .sub{display:block; color:var(--ink-soft); font-size:12.5px; margin-top:1px}
   .swap .slot{font-family:"IBM Plex Mono",monospace; font-variant-numeric:tabular-nums}
+  .room{
+    display:inline-block; margin-left:5px; padding:1px 6px; border-radius:2px;
+    white-space:nowrap;
+    font-family:"IBM Plex Mono",monospace; font-size:10.5px; font-weight:500;
+    color:var(--ink-soft); background:var(--surface-2); border:1px solid var(--line);
+  }
 
   .strain{
     display:block; margin-top:5px; font-size:11.5px; color:var(--ink-soft);
@@ -212,8 +237,11 @@
     background:var(--surface-2); font-family:"IBM Plex Mono",monospace; font-size:11.5px;
     color:var(--ink-faint); font-weight:500; width:46px;
   }
-  table.tt td{height:47px}
+  table.tt tbody tr:nth-child(even) td{background:color-mix(in srgb, var(--surface-2) 45%, transparent)}
+  table.tt td{height:48px}
   table.tt td.free{background:var(--paper)}
+  table.tt tbody tr:nth-child(even) td.free{background:var(--paper)}
+  table.tt td:hover{background:var(--cover-fill); border-color:var(--cover-edge)}
   .tt-sub{display:block; font-weight:600; font-size:13px}
   .tt-meta{display:block; font-size:11.5px; color:var(--ink-soft); margin-top:1px}
   .tt-tally{display:flex; gap:22px; flex-wrap:wrap; margin-top:13px; font-size:12.5px; color:var(--ink-soft)}
@@ -356,9 +384,11 @@ const consecutiveMax = periods => {
 const esc = v => String(v ?? "").replace(/[&<>"']/g, m => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
 const inWindow = (day, period, sel) => {
   if (day !== sel.day) return false;
-  if (sel.period === "all") return true;
-  if (String(sel.period).startsWith("from-")) return period >= Number(String(sel.period).slice(5));
-  return Number(sel.period) === period;
+  const v = String(sel.period);
+  if (v === "all") return true;
+  if (v.startsWith("from-")) return period >= Number(v.slice(5));   // N교시부터 끝까지
+  if (v.startsWith("to-")) return period <= Number(v.slice(3));     // 처음부터 N교시까지
+  return Number(v) === period;
 };
 
 /* 해당 교사·요일의 교시 목록 — 결강분은 빼고, 임시로 떠맡은 수업은 더해서 */
@@ -376,7 +406,7 @@ function loadOk(teacher, temp, omit, sel) {
   for (const d of DATA.days) {
     const p = periodsOn(teacher.id, d.id, temp, omit, sel);
     if (p.length > capFor(teacher.id, d.id)) return false;
-    if (consecutiveMax(p) > teacher.maxConsecutive) return false;
+    if (consecutiveMax(p) > consecFor(teacher.id, d.id)) return false;
   }
   return true;
 }
@@ -387,12 +417,15 @@ const stateAt = (teacher, day, period) => teacher.slotStates[day + "-" + period]
    월·수·금은 6교시, 화·목은 7교시여서 한도가 다르다.
    자료에 들어 있던 교사별 일일 최대는 현재 시간표에서 뽑아낸 추정값이라 쓰지 않는다. */
 const DAILY_CAP = { 월: 5, 화: 6, 수: 5, 목: 6, 금: 5 };
+const CONSEC_CAP = 3;                    // 연달아 설 수 있는 최대 시간
 const capOf = day => DAILY_CAP[day] || 5;
 
 /* 하루에 몰아서 근무하는 강사처럼 이미 한도를 넘겨 짜인 경우가 있다.
    그 상태는 그대로 인정하되, 교체로 거기서 더 늘어나지는 않게 한다. */
 const capFor = (teacherId, day) =>
   Math.max(capOf(day), (byTeacherDay.get(teacherId + "|" + day) || []).length);
+const consecFor = (teacherId, day) =>
+  Math.max(CONSEC_CAP, consecutiveMax((byTeacherDay.get(teacherId + "|" + day) || []).map(l => l.period)));
 /* 이 회전이 각 교사의 하루를 얼마나 무겁게 만드는지, 교체 전후를 비교한다.
    한도를 넘는 안은 이미 걸러졌으므로 여기서 잡히는 것은 "합법이지만 부담되는" 경우다. */
 function strainOf(chain, temp, usedIds, add, omit, sel) {
@@ -417,7 +450,7 @@ function strainOf(chain, temp, usedIds, add, omit, sel) {
     if (!runUp && !loadUp) continue;
     notes.push({
       teacher: t.name, day, runUp, loadUp,
-      run: afterRun, maxRun: t.maxConsecutive,
+      run: afterRun, maxRun: consecFor(tid, day),
       count: after.length, maxCount: cap,
       hard: afterRun >= 4 || loadUp,
     });
@@ -457,7 +490,7 @@ function freeTeachersAt(day, period, sel, classId) {
     if (stateAt(t, day, period) === "unavailable") continue;
     if (byTeacherSlot.has(t.id + "|" + day + "-" + period)) continue;
     const after = (byTeacherDay.get(t.id + "|" + day) || []).map(l => l.period).concat(period);
-    if (after.length > capFor(t.id, day) || consecutiveMax(after) > t.maxConsecutive) continue;
+    if (after.length > capFor(t.id, day) || consecutiveMax(after) > consecFor(t.id, day)) continue;
     out.push({
       name: t.name, subjects: t.subjects.join("/"),
       sameClass: Boolean(classId && teacherClasses.get(t.id) && teacherClasses.get(t.id).has(classId)),
@@ -544,6 +577,7 @@ function optionsFor(lesson, temp, usedIds, limit, sel) {
         day: before.day, period: before.period,
         beforeSubject: before.subject, beforeTeacher: T.get(before.teacherId).name,
         afterSubject: after.subject, afterTeacher: T.get(after.teacherId).name,
+        afterRoom: (T.get(after.teacherId) || {}).room || "",
       };
     });
 
@@ -626,8 +660,14 @@ function solve(sel) {
 /* ── 그리기 ───────────────────────────── */
 const MAXP = Math.max(...DATA.days.map(d => d.periods));
 const cls = id => C.get(id)?.name || id;
-const periodLabel = v => v === "all" ? "하루 전체"
-  : String(v).startsWith("from-") ? Number(String(v).slice(5)) + "교시 이후 전체" : v + "교시";
+const roomOf = teacherId => (T.get(teacherId) || {}).room || "";
+const periodLabel = v => {
+  const t = String(v);
+  if (t === "all") return "하루 전체";
+  if (t.startsWith("from-")) return Number(t.slice(5)) + "교시부터 끝까지";
+  if (t.startsWith("to-")) return Number(t.slice(3)) + "교시까지";
+  return t + "교시";
+};
 
 function weekMap(plan, r) {
   const mark = new Map();
@@ -711,17 +751,23 @@ function planCard(plan, i, r) {
   const done = plan.steps.length, miss = plan.missed.length;
   const steps = plan.steps.map((s, n) => `
     <li><span class="idx">${n + 1}</span><div class="swap">
-      <b>${esc(s.className)}</b> ${s.length === 2 ? "두 수업 맞교환" : s.length + "개 수업 자리 이동"}
-      ${s.slots.map(sl => `<span class="sub"><span class="slot">${sl.day} ${sl.period}교시</span>
-        ${esc(sl.beforeSubject)} · ${esc(sl.beforeTeacher)} →
-        <b>${esc(sl.afterSubject)}</b> · <span class="to-t">${esc(sl.afterTeacher)}</span></span>`).join("")}
+      <div class="swap-head"><b>${esc(s.className)}</b>
+        <span>${s.length === 2 ? "두 수업 맞교환" : s.length + "개 수업 자리 이동"}</span></div>
+      <div class="moves">
+        ${s.slots.map(sl => `
+          <span class="mv-slot">${sl.day} ${sl.period}</span>
+          <span class="mv-was">${esc(sl.beforeSubject)} <i>${esc(sl.beforeTeacher)}</i></span>
+          <span class="mv-arw" aria-hidden="true">→</span>
+          <span class="mv-now"><b>${esc(sl.afterSubject)}</b> <i>${esc(sl.afterTeacher)}</i>${sl.afterRoom ? ` <span class="room">${esc(sl.afterRoom)}</span>` : ""}</span>`).join("")}
+      </div>
       ${(s.strain || []).map(n => `<span class="strain ${n.hard ? "hard" : ""}">${n.hard ? "！" : "·"} ${strainLine(n)}</span>`).join("")}
     </div></li>`).join("");
   const missed = plan.missed.map(l => {
     const free = freeTeachersAt(l.day, l.period, r.sel, l.classId).slice(0, 4);
     return `
     <li><span class="idx gap">—</span><div class="swap">
-      <span class="slot">${l.day} ${l.period}교시</span> <b>${esc(cls(l.classId))} ${esc(l.subject)}</b>
+      <div class="swap-head"><b>${esc(cls(l.classId))}</b>
+        <span class="slot">${l.day} ${l.period}교시 ${esc(l.subject)}</span></div>
       <span class="sub">${esc(missReason(l))}.
       ${free.length ? "이 시간 공강: " + free.map(coverLabel).join(", ") + " — 보강을 부탁하세요."
                      : "이 시간에 공강인 선생님도 없습니다."}</span>
@@ -729,7 +775,8 @@ function planCard(plan, i, r) {
   }).join("");
   return `<article class="plan ${i === 0 ? "best" : ""}">
     <div class="plan-top">
-      <div><h3>대안 ${i + 1}${i === 0 ? " · 추천" : ""}</h3><div class="load">부담 ${plan.score} · 교체 ${done}건 · 수업 ${plan.steps.reduce((n, s) => n + s.length, 0)}개 이동</div></div>
+      <div><h3>대안 ${i + 1}${i === 0 ? " · 추천" : ""}</h3>
+        <div class="load">교체 ${done}건 · 수업 ${plan.steps.reduce((n, s) => n + s.length, 0)}개 이동 · 부담 ${plan.score}</div></div>
       <span class="chip ${miss ? "part" : plan.steps.some(s => s.hard) ? "part" : "full"}">${miss ? `${done}/${done + miss} 해결` : plan.steps.some(s => s.hard) ? "전부 해결 · 부담 큼" : "전부 해결"}</span>
     </div>
     ${weekMap(plan, r)}
@@ -813,11 +860,17 @@ $("day").innerHTML = DATA.days.map(d => `<option value="${d.id}">${esc(d.label)}
 
 function fillPeriods() {
   const d = DATA.days.find(x => x.id === $("day").value) || DATA.days[0];
+  const keep = $("period").value;
   const one = Array.from({ length: d.periods }, (_, i) => `<option value="${i + 1}">${i + 1}교시만</option>`).join("");
   const from = Array.from({ length: Math.max(0, d.periods - 1) }, (_, i) => i + 2)
-    .map(p => `<option value="from-${p}">${p}교시 이후 전체</option>`).join("");
+    .map(p => `<option value="from-${p}">${p}교시부터 끝까지</option>`).join("");
+  const to = Array.from({ length: Math.max(0, d.periods - 1) }, (_, i) => i + 1)
+    .map(p => `<option value="to-${p}">${p}교시까지</option>`).join("");
   $("period").innerHTML = `<option value="all">하루 전체</option>
-    <optgroup label="한 교시만">${one}</optgroup><optgroup label="선택 교시 이후 전체">${from}</optgroup>`;
+    <optgroup label="한 교시만">${one}</optgroup>
+    <optgroup label="오전 조퇴·지각">${to}</optgroup>
+    <optgroup label="오후 출장·조퇴">${from}</optgroup>`;
+  if (keep && [...$("period").options].some(o => o.value === keep)) $("period").value = keep;
 }
 fillPeriods();
 $("day").addEventListener("change", fillPeriods);
@@ -1125,7 +1178,8 @@ function renderTimetable() {
       const side = ttMode === "class"
         ? (T.get(l.teacherId)?.name || "")
         : cls(l.classId);
-      body += `<td><span class="tt-sub">${esc(l.subject)}</span><span class="tt-meta">${esc(side)}</span></td>`;
+      const room = ttMode === "class" ? roomOf(l.teacherId) : "";
+      body += `<td><span class="tt-sub">${esc(l.subject)}</span><span class="tt-meta">${esc(side)}${room ? " · " + esc(room) : ""}</span></td>`;
     }
     body += "</tr>";
   }
@@ -1150,7 +1204,8 @@ function renderTimetable() {
       <span>주당 수업 <b>${regular}</b>시간</span>
       <span>수업 있는 날 <b>${daysUsed}</b>일</span>
       <span>${partnerLabel} <b>${partner}</b></span>
-      ${teacher ? `<span>근무 요일 <b>${esc(teacher.allowedDays.join(""))}</b></span><span>연속 최대 <b>${teacher.maxConsecutive}</b>시간</span>` : ""}
+      ${teacher && teacher.room ? `<span>교과교실 <b>${esc(teacher.room)}</b></span>` : ""}
+      ${teacher ? `<span>근무 요일 <b>${esc(teacher.allowedDays.join(""))}</b></span>` : ""}
     </p>`;
 }
 fillEntities();

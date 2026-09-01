@@ -21,8 +21,8 @@ function slimData() {
     days: p.days.map(d => ({ id: d.id, label: d.label, periods: d.periods })),
     teachers: p.teachers.map(t => ({
       id: t.id, name: t.name, kind: t.kind, subjects: t.subjects,
-      allowedDays: t.allowedDays, slotStates: t.slotStates,
-      maxDaily: t.maxDaily, maxConsecutive: t.maxConsecutive,
+      allowedDays: t.allowedDays, slotStates: t.slotStates || {},
+      room: t.room || "",
     })),
     classes: p.classes.map(c => ({ id: c.id, name: c.name, grade: c.grade, homeroom: c.homeroom })),
     schedule: p.schedule.map(a => ({
