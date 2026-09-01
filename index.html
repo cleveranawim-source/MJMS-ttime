@@ -55,6 +55,20 @@
     background-size:5px 5px,5px 5px; background-repeat:no-repeat;
   }
   input[type="date"]{background-image:none; padding-right:11px; cursor:text; min-height:41px}
+  .console-row{display:flex; gap:14px; align-items:flex-end; margin-top:14px; flex-wrap:wrap}
+  .console-row .field{flex:1 1 280px}
+  .periods{display:flex; flex-wrap:wrap; gap:6px; align-items:center}
+  .pchip{position:relative; display:inline-flex}
+  .pchip input{position:absolute; inset:0; width:100%; height:100%; margin:0; opacity:0; cursor:pointer}
+  .pchip > span{
+    display:inline-flex; align-items:center; justify-content:center; min-width:41px; height:41px;
+    padding:0 11px; font-size:14px; color:var(--ink); white-space:nowrap;
+    background:var(--surface-2); border:1px solid var(--line-strong); border-radius:2px;
+  }
+  .pchip input:checked + span{background:var(--ink); color:var(--paper); border-color:var(--ink)}
+  .pchip input:indeterminate + span{border-style:dashed; color:var(--ink-soft)}
+  .pchip input:focus-visible + span{outline:2px solid var(--cover); outline-offset:2px}
+  .periods .sep{width:1px; height:26px; background:var(--line-strong); margin:0 3px}
   select:focus-visible, button:focus-visible, input:focus-visible{outline:2px solid var(--cover); outline-offset:2px}
   .go{
     font:inherit; font-size:14px; font-weight:600; color:var(--paper); background:var(--ink);
@@ -322,7 +336,11 @@
       <label class="field"><span>대상 교사</span><select id="teacher"></select></label>
       <label class="field"><span>결강 날짜</span><input type="date" id="date"></label>
       <label class="field"><span>요일</span><select id="day"></select></label>
-      <label class="field"><span>교시 범위</span><select id="period"></select></label>
+    </div>
+    <div class="console-row">
+      <div class="field"><span>결강 교시</span>
+        <div class="periods" id="periods" role="group" aria-label="결강 교시"></div>
+      </div>
       <button class="go" id="go" type="button">경우의 수 찾기</button>
     </div>
     <p class="form-help">결강 수업과 <b>같은 반의 다른 수업</b>이 교시를 통째로 맞바꿉니다. 두 선생님 모두 자기 과목을 그대로 가르치므로 보강이 생기지 않습니다.</p>
@@ -564,14 +582,8 @@ const consecutiveMax = periods => {
   return max;
 };
 const esc = v => String(v ?? "").replace(/[&<>"']/g, m => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
-const inWindow = (day, period, sel) => {
-  if (day !== sel.day) return false;
-  const v = String(sel.period);
-  if (v === "all") return true;
-  const dash = v.indexOf("-");                                      // "2-4" — 2교시부터 4교시까지
-  if (dash > 0) return period >= Number(v.slice(0, dash)) && period <= Number(v.slice(dash + 1));
-  return Number(v) === period;
-};
+/* 결강 교시는 고른 번호 목록이다. 붙어 있지 않아도 된다 — 1교시와 5교시만 비는 날도 있다. */
+const inWindow = (day, period, sel) => day === sel.day && sel.periods.indexOf(period) >= 0;
 
 /* 해당 교사·요일의 교시 목록 — 결강분은 빼고, 임시로 떠맡은 수업은 더해서 */
 function periodsOn(tid, day, temp, omit, sel) {
@@ -946,13 +958,16 @@ function solve(sel) {
 const MAXP = Math.max(...DATA.days.map(d => d.periods));
 const cls = id => C.get(id)?.name || id;
 
-const periodLabel = v => {
-  const t = String(v);
-  if (t === "all") return "하루 전체";
-  const dash = t.indexOf("-");
-  if (dash > 0) return t.slice(0, dash) + "~" + t.slice(dash + 1) + "교시";
-  return t + "교시";
-};
+/* 고른 교시를 사람이 읽는 문구로 — 하루 전체 / 2~4교시 / 1·5교시 */
+function periodLabel(sel) {
+  const d = DATA.days.find(x => x.id === sel.day);
+  const ps = [...sel.periods].sort((a, b) => a - b);
+  if (!ps.length) return "선택 없음";
+  if (d && ps.length === d.periods) return "하루 전체";
+  if (ps.length === 1) return ps[0] + "교시";
+  const solid = ps.every((p, i) => i === 0 || p === ps[i - 1] + 1);
+  return (solid ? ps[0] + "~" + ps[ps.length - 1] : ps.join("·")) + "교시";
+}
 
 function weekMap(plan, r) {
   const mark = new Map();
@@ -980,7 +995,7 @@ const missReason = l => l.locked || l.type === "special" ? "고정수업이라 �
   : "같은 반 안에 옮길 자리가 없음";
 
 function planText(plan, r) {
-  const head = r.absent.name + " 선생님 " + r.sel.day + "요일 " + periodLabel(r.sel.period) + " " + r.sel.reason
+  const head = r.absent.name + " 선생님 " + r.sel.day + "요일 " + periodLabel(r.sel) + " " + r.sel.reason
     + (plan.steps.length ? " · 수업 교체안" : " · 보강 요청");
   const rows = plan.steps.map((s, i) => [
     (i + 1) + ". " + s.className + " — " + s.label,
@@ -1096,7 +1111,7 @@ function planCard(plan, i, r) {
 function render(r) {
   const out = document.getElementById("out");
   if (!r.affected.length) {
-    out.innerHTML = `<div class="banner none"><strong>${esc(r.absent.name)} 선생님은 ${r.sel.day}요일 ${periodLabel(r.sel.period)}에 담당 수업이 없습니다</strong>
+    out.innerHTML = `<div class="banner none"><strong>${esc(r.absent.name)} 선생님은 ${r.sel.day}요일 ${periodLabel(r.sel)}에 담당 수업이 없습니다</strong>
       <p>다른 요일이나 교시 범위를 선택해 보세요.</p></div>`;
     return;
   }
@@ -1113,7 +1128,7 @@ function render(r) {
   }).join("");
 
   out.innerHTML = `
-    <div class="banner"><strong>${esc(r.absent.name)} 선생님 · ${r.sel.day}요일 ${periodLabel(r.sel.period)} · ${esc(r.sel.reason)}</strong>
+    <div class="banner"><strong>${esc(r.absent.name)} 선생님 · ${r.sel.day}요일 ${periodLabel(r.sel)} · ${esc(r.sel.reason)}</strong>
       <p>영향받는 수업 ${r.affected.length}개를 기준으로, 정규 시간표는 그대로 둔 채 대안만 계산했습니다.</p></div>
     <div class="tally">
       <div class="hl-from"><span>영향 수업</span><strong>${r.affected.length}</strong></div>
@@ -1174,34 +1189,50 @@ $("src").textContent = DATA.name + " · 교사 " + DATA.teachers.length + "명 �
 $("teacher").innerHTML = ACTIVE.map(t => `<option value="${t.id}">${esc(t.name)}${t.subjects.length ? " · " + esc(t.subjects.join("/")) : ""}</option>`).join("");
 $("day").innerHTML = DATA.days.map(d => `<option value="${d.id}">${esc(d.label)}</option>`).join("");
 
-/* 결강 범위 목록. 한 교시짜리를 뺀 모든 연속 구간을 "N~M교시" 한 가지 꼴로 적고,
-   찾기 쉽도록 앞 교시에 닿는 것, 끝 교시에 닿는 것, 어느 쪽에도 닿지 않는 것으로 나눈다. */
+const pickedPeriods = () =>
+  [...document.querySelectorAll("#periods input[value]")].filter(b => b.checked).map(b => Number(b.value));
+
+/* 하루 전체 칸은 나머지를 모두 켜고 끈다. 일부만 켜져 있으면 중간 상태로 둔다. */
+function syncAll() {
+  const boxes = [...document.querySelectorAll("#periods input[value]")];
+  const on = boxes.filter(b => b.checked).length;
+  $("p-all").checked = on > 0 && on === boxes.length;
+  $("p-all").indeterminate = on > 0 && on < boxes.length;
+}
+
+/* 그날 있는 교시만큼 칸을 만든다 — 화·목은 7교시까지, 월·수·금은 6교시까지다. */
 function fillPeriods() {
   const d = DATA.days.find(x => x.id === $("day").value) || DATA.days[0];
-  const last = d.periods, keep = $("period").value;
-  const opt = (v, label) => `<option value="${v}">${label}</option>`;
-  const range = (x, y) => opt(x + "-" + y, x + "~" + y + "교시");
-  const one = Array.from({ length: last }, (_, i) => opt(i + 1, i + 1 + "교시만")).join("");
-  let am = "", pm = "", mid = "";
-  for (let y = 2; y < last; y += 1) am += range(1, y);
-  for (let x = 2; x < last; x += 1) pm += range(x, last);
-  for (let x = 2; x < last - 1; x += 1) for (let y = x + 1; y < last; y += 1) mid += range(x, y);
-  $("period").innerHTML = opt("all", "하루 전체")
-    + `<optgroup label="한 교시만">${one}</optgroup>`
-    + `<optgroup label="오전 조퇴·지각">${am}</optgroup>`
-    + `<optgroup label="오후 출장·조퇴">${pm}</optgroup>`
-    + `<optgroup label="중간에 낀 연수·회의">${mid}</optgroup>`;
-  if (keep && [...$("period").options].some(o => o.value === keep)) $("period").value = keep;
+  const keep = new Set(pickedPeriods());
+  const every = !$("p-all") || $("p-all").checked;   // 하루 전체였다면 요일이 바뀌어도 하루 전체로 둔다
+  let html = '<label class="pchip"><input type="checkbox" id="p-all"><span>하루 전체</span></label><i class="sep"></i>';
+  for (let p = 1; p <= d.periods; p += 1) {
+    const on = every || keep.has(p) ? " checked" : "";
+    html += `<label class="pchip"><input type="checkbox" value="${p}"${on}><span>${p}</span></label>`;
+  }
+  $("periods").innerHTML = html;
+  syncAll();
 }
 fillPeriods();
 $("day").addEventListener("change", fillPeriods);
+$("periods").addEventListener("change", e => {
+  if (e.target.id === "p-all") {
+    for (const b of document.querySelectorAll("#periods input[value]")) b.checked = e.target.checked;
+  }
+  syncAll();
+});
 
 $("go").addEventListener("click", () => {
   const btn = $("go");
   btn.disabled = true; btn.textContent = "찾는 중…";
   setTimeout(() => {
     try {
-      render(solve({ teacherId: $("teacher").value, day: $("day").value, period: $("period").value, reason: $("reason").value }));
+      const periods = pickedPeriods();
+      if (!periods.length) {
+        $("out").innerHTML = `<div class="empty"><strong>결강 교시를 하나 이상 고르세요</strong>비는 교시를 눌러 표시하면 그 시간만 놓고 계산합니다.</div>`;
+      } else {
+        render(solve({ teacherId: $("teacher").value, day: $("day").value, periods, reason: $("reason").value }));
+      }
     } catch (e) {
       $("out").innerHTML = `<div class="empty"><strong>계산 중 문제가 생겼습니다</strong>${esc(e.message)}</div>`;
     } finally {
@@ -1479,7 +1510,7 @@ function renderAllClasses() {
   }
 
   const note = applied
-    ? `<div class="banner"><strong>대안 ${applied.index + 1} 적용 화면 · ${esc(applied.r.absent.name)} 선생님 ${applied.r.sel.day}요일 ${periodLabel(applied.r.sel.period)}</strong>
+    ? `<div class="banner"><strong>대안 ${applied.index + 1} 적용 화면 · ${esc(applied.r.absent.name)} 선생님 ${applied.r.sel.day}요일 ${periodLabel(applied.r.sel)}</strong>
         <p>바뀌는 칸은 청록으로, 아직 채우지 못한 칸은 자두빛으로 표시했습니다. 실제 시간표는 바뀌지 않습니다.
         <button class="ghost" type="button" id="all-clear" style="margin-left:8px">원래대로 보기</button></p></div>`
     : `<div class="banner none"><strong>2026학년도 2학기 전체 학반 시간표</strong>
