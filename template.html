@@ -4,7 +4,10 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700&family=IBM+Plex+Sans+KR:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
 
 <style>
+  /* 밝은 화면 하나로만 간다. 뷰어가 어두운 테마여도 이 값이 그대로 쓰이도록
+     모든 색을 여기서 정하고 body에 배경을 명시한다. */
   :root{
+    color-scheme:light;
     --paper:#f6f5f2; --surface:#fff; --surface-2:#efeeea;
     --ink:#1b1d21; --ink-soft:#5d636d; --ink-faint:#8b919b;
     --line:#e2e0da; --line-strong:#cdcac2;
@@ -14,27 +17,6 @@
     --shadow:0 1px 2px rgba(27,29,33,.05), 0 8px 22px -14px rgba(27,29,33,.28);
     --step:clamp(14px,.55vw + 12.4px,15.5px);
   }
-  @media (prefers-color-scheme:dark){
-    :root:not([data-theme="light"]){
-      --paper:#15171b; --surface:#1d2026; --surface-2:#252932;
-      --ink:#e9eae7; --ink-soft:#a2a8b2; --ink-faint:#767d88;
-      --line:#2d323b; --line-strong:#3d434e;
-      --absent:#d78fb0; --absent-fill:#3a2130; --absent-edge:#5b3549;
-      --cover:#6fc4bc; --cover-fill:#153330; --cover-edge:#2b544f;
-      --warn:#dbab60; --warn-fill:#332810; --warn-edge:#54431c;
-      --shadow:0 1px 2px rgba(0,0,0,.4), 0 10px 26px -16px rgba(0,0,0,.8);
-    }
-  }
-  :root[data-theme="dark"]{
-    --paper:#15171b; --surface:#1d2026; --surface-2:#252932;
-    --ink:#e9eae7; --ink-soft:#a2a8b2; --ink-faint:#767d88;
-    --line:#2d323b; --line-strong:#3d434e;
-    --absent:#d78fb0; --absent-fill:#3a2130; --absent-edge:#5b3549;
-    --cover:#6fc4bc; --cover-fill:#153330; --cover-edge:#2b544f;
-    --warn:#dbab60; --warn-fill:#332810; --warn-edge:#54431c;
-    --shadow:0 1px 2px rgba(0,0,0,.4), 0 10px 26px -16px rgba(0,0,0,.8);
-  }
-
   *{box-sizing:border-box}
   body{
     margin:0; background:var(--paper); color:var(--ink);
