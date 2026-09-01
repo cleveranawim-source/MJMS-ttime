@@ -365,7 +365,9 @@
     <b>교환 규칙</b> — 결강 수업과 <b>같은 반의 다른 수업</b>이 교시를 통째로 맞바꿉니다. 두 수업 모두 담당 교사가 그대로 자기 과목을 가르치므로 보강이 생기지 않고, 학급이 주당 받는 과목 수도 변하지 않습니다.
     창체·고정수업과 2시간 연강은 쪼갤 수 없어 상대 후보에서 뺍니다.<br>
     <b>검사 항목</b> — 양쪽 교사의 같은 시간 수업 중복, 수업 불가 교시, 근무 가능 요일, 하루 최대 수업, 최대 연속수업을 가상 시간표에서 다시 검사합니다.
-    하루 최대는 학교 규칙을 따릅니다 — <b>월·수·금 5시간, 화·목 6시간</b>.<br>
+    하루 최대는 학교 규칙을 따릅니다 — <b>월·수·금 5시간, 화·목 6시간</b>.
+    교과교실을 두 분이 나눠 쓰는 곳이 있어 <b>교실이 그 시간에 비어 있는지</b>도 함께 봅니다.
+    체육·운동은 운동장과 체육관에서 하므로 교실을 따지지 않습니다.<br>
     <b>부담 점수</b> — 낮을수록 좋습니다. 두 수업의 요일이 가까울수록, 두 교사의 기피 교시를 건드리지 않을수록 낮아집니다.<br>
     <b>부담 표시</b> — 교체 전후를 비교해 <b>연속 4시간</b>이 새로 생기거나 하루 수업이 늘어 한도에 닿으면 적어 둡니다.
     연속 3시간은 정상으로 보고 표시하지 않습니다. <b>한 안에서 하루 한도까지 차는 선생님이 두 분 이상</b>이면 무리한 교체로 보고 보강을 권합니다.<br>
@@ -425,11 +427,13 @@ for (const rule of KEEP_FREE) {
 }
 const ACTIVE = DATA.teachers.filter(t => byTeacher.has(t.id));
 const byClassSlot = new Map();   // "cid|요일-교시" → 수업
+const byRoomSlot = new Map();    // "교실|요일-교시" → 수업
 const byClass = new Map();       // cid → 수업[]
 for (const l of DATA.schedule) {
   byClassSlot.set(l.classId + "|" + l.day + "-" + l.period, l);
   if (!byClass.has(l.classId)) byClass.set(l.classId, []);
   byClass.get(l.classId).push(l);
+  if (l.room) byRoomSlot.set(l.room + "|" + l.day + "-" + l.period, l);
 }
 
 const consecutiveMax = periods => {
@@ -605,6 +609,12 @@ function optionsFor(lesson, temp, usedIds, limit, sel) {
     const busy = byTeacherSlot.get(t.id + "|" + day + "-" + period);
     if (busy && !leaving.has(busy.id)) return false;
     if (temp.some(x => x.teacherId === t.id && x.day === day && x.period === period)) return false;
+    // 교과교실을 두 분이 나눠 쓰는 곳이 있어, 그 방이 비어 있는지도 본다
+    if (item.room) {
+      const inRoom = byRoomSlot.get(item.room + "|" + day + "-" + period);
+      if (inRoom && !leaving.has(inRoom.id)) return false;
+      if (temp.some(x => x.room === item.room && x.day === day && x.period === period)) return false;
+    }
     return true;
   }
 
@@ -616,7 +626,7 @@ function optionsFor(lesson, temp, usedIds, limit, sel) {
     const add = temp.slice();
     for (let i = 0; i < chain.length; i += 1) {
       const to = chain[(i + 1) % chain.length];
-      add.push({ teacherId: chain[i].teacherId, day: to.day, period: to.period });
+      add.push({ teacherId: chain[i].teacherId, day: to.day, period: to.period, room: chain[i].room || "" });
     }
     const omit = new Set(usedIds);
     for (const x of chain) omit.add(x.id);
@@ -634,9 +644,9 @@ function optionsFor(lesson, temp, usedIds, limit, sel) {
       return {
         day: before.day, period: before.period,
         beforeSubject: before.subject, beforeTeacher: T.get(before.teacherId).name,
-        beforeRoom: (T.get(before.teacherId) || {}).room || "",
+        beforeRoom: before.room || "",
         afterSubject: after.subject, afterTeacher: T.get(after.teacherId).name,
-        afterRoom: (T.get(after.teacherId) || {}).room || "",
+        afterRoom: after.room || "",
       };
     });
 
@@ -719,7 +729,7 @@ function solve(sel) {
 /* ── 그리기 ───────────────────────────── */
 const MAXP = Math.max(...DATA.days.map(d => d.periods));
 const cls = id => C.get(id)?.name || id;
-const roomOf = teacherId => (T.get(teacherId) || {}).room || "";
+
 const periodLabel = v => {
   const t = String(v);
   if (t === "all") return "하루 전체";
@@ -1315,7 +1325,7 @@ function renderTimetable() {
       const side = ttMode === "class"
         ? (T.get(l.teacherId)?.name || "")
         : cls(l.classId);
-      const room = ttMode === "class" ? roomOf(l.teacherId) : "";
+      const room = l.room || "";
       body += `<td><span class="tt-sub">${esc(l.subject)}</span><span class="tt-meta">${esc(side)}${room ? " · " + esc(room) : ""}</span></td>`;
     }
     body += "</tr>";
@@ -1341,7 +1351,6 @@ function renderTimetable() {
       <span>주당 수업 <b>${regular}</b>시간</span>
       <span>수업 있는 날 <b>${daysUsed}</b>일</span>
       <span>${partnerLabel} <b>${partner}</b></span>
-      ${teacher && teacher.room ? `<span>교과교실 <b>${esc(teacher.room)}</b></span>` : ""}
       ${teacher ? `<span>근무 요일 <b>${esc(teacher.allowedDays.join(""))}</b></span>` : ""}
     </p>`;
 }

@@ -22,13 +22,13 @@ function slimData() {
     teachers: p.teachers.map(t => ({
       id: t.id, name: t.name, kind: t.kind, subjects: t.subjects,
       allowedDays: t.allowedDays, slotStates: t.slotStates || {},
-      room: t.room || "",
     })),
     classes: p.classes.map(c => ({ id: c.id, name: c.name, grade: c.grade, homeroom: c.homeroom })),
     schedule: p.schedule.map(a => ({
       id: a.id, classId: a.classId, teacherId: a.teacherId, subject: a.subject,
       day: a.day, period: a.period,
       blockId: a.blockId || undefined, locked: a.locked || undefined, type: a.type,
+      room: a.room || undefined,
     })),
   });
 }
