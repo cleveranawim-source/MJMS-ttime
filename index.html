@@ -56,19 +56,28 @@
   }
   input[type="date"]{background-image:none; padding-right:11px; cursor:text; min-height:41px}
   .console-row{display:flex; gap:14px; align-items:flex-end; margin-top:14px; flex-wrap:wrap}
-  .console-row .field{flex:1 1 280px}
-  .periods{display:flex; flex-wrap:wrap; gap:6px; align-items:center}
-  .pchip{position:relative; display:inline-flex}
+  .console-row .field{flex:1 1 320px}
+  .field .lab{display:flex; align-items:baseline; gap:8px}
+  .field .lab b{font-size:12px; font-weight:600; letter-spacing:0; text-transform:none;
+    font-family:inherit; color:var(--absent)}
+  .periods{display:flex; flex-wrap:wrap; gap:5px; align-items:stretch}
+  .pchip{position:relative; display:flex}
+  .pchip > span{flex:1}
   .pchip input{position:absolute; inset:0; width:100%; height:100%; margin:0; opacity:0; cursor:pointer}
   .pchip > span{
-    display:inline-flex; align-items:center; justify-content:center; min-width:41px; height:41px;
-    padding:0 11px; font-size:14px; color:var(--ink); white-space:nowrap;
-    background:var(--surface-2); border:1px solid var(--line-strong); border-radius:2px;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px;
+    min-width:66px; min-height:47px; padding:5px 7px; border-radius:2px;
+    background:var(--surface-2); border:1px solid var(--line-strong); color:var(--ink);
   }
-  .pchip input:checked + span{background:var(--ink); color:var(--paper); border-color:var(--ink)}
-  .pchip input:indeterminate + span{border-style:dashed; color:var(--ink-soft)}
+  .pchip .pn{font-size:14px; font-weight:600; line-height:1}
+  .pchip .pw{font-size:10.5px; line-height:1; white-space:nowrap; color:var(--ink-faint)}
+  .pchip.free .pw{opacity:.75}
+  .pchip input:checked + span{background:var(--absent-fill); border-color:var(--absent); color:var(--absent)}
+  .pchip input:checked + span .pw{color:var(--absent); opacity:.85}
+  .pchip.all > span{min-width:60px; font-size:12.5px}
+  .pchip input:indeterminate + span{border-style:dashed}
   .pchip input:focus-visible + span{outline:2px solid var(--cover); outline-offset:2px}
-  .periods .sep{width:1px; height:26px; background:var(--line-strong); margin:0 3px}
+  .periods .sep{width:1px; align-self:stretch; background:var(--line-strong); margin:0 4px}
   select:focus-visible, button:focus-visible, input:focus-visible{outline:2px solid var(--cover); outline-offset:2px}
   .go{
     font:inherit; font-size:14px; font-weight:600; color:var(--paper); background:var(--ink);
@@ -338,7 +347,7 @@
       <label class="field"><span>요일</span><select id="day"></select></label>
     </div>
     <div class="console-row">
-      <div class="field"><span>결강 교시</span>
+      <div class="field"><span class="lab">결강 교시<b id="p-sum"></b></span>
         <div class="periods" id="periods" role="group" aria-label="결강 교시"></div>
       </div>
       <button class="go" id="go" type="button">경우의 수 찾기</button>
@@ -1198,23 +1207,31 @@ function syncAll() {
   const on = boxes.filter(b => b.checked).length;
   $("p-all").checked = on > 0 && on === boxes.length;
   $("p-all").indeterminate = on > 0 && on < boxes.length;
+  $("p-sum").textContent = on ? periodLabel({ day: $("day").value, periods: pickedPeriods() }) : "";
 }
 
-/* 그날 있는 교시만큼 칸을 만든다 — 화·목은 7교시까지, 월·수·금은 6교시까지다. */
+/* 그날 있는 교시만큼 칸을 만들고, 그 시간에 무슨 수업이 있는지 함께 적는다.
+   화·목은 7교시까지, 월·수·금은 6교시까지다. 공강도 고를 수 있게 남겨 둔다 —
+   그 시간에 자리를 비우면 결강 수업을 그리로 옮길 수 없기 때문이다. */
 function fillPeriods() {
   const d = DATA.days.find(x => x.id === $("day").value) || DATA.days[0];
+  const tid = $("teacher").value;
   const keep = new Set(pickedPeriods());
   const every = !$("p-all") || $("p-all").checked;   // 하루 전체였다면 요일이 바뀌어도 하루 전체로 둔다
-  let html = '<label class="pchip"><input type="checkbox" id="p-all"><span>하루 전체</span></label><i class="sep"></i>';
+  let html = '<label class="pchip all"><input type="checkbox" id="p-all"><span>하루 전체</span></label><i class="sep"></i>';
   for (let p = 1; p <= d.periods; p += 1) {
+    const l = byTeacherSlot.get(tid + "|" + d.id + "-" + p);
     const on = every || keep.has(p) ? " checked" : "";
-    html += `<label class="pchip"><input type="checkbox" value="${p}"${on}><span>${p}</span></label>`;
+    const what = l ? cls(l.classId) + " " + l.subject : "공강";
+    const tip = d.id + "요일 " + p + "교시 · " + what + (l && l.blockId ? " (2시간 연강)" : "");
+    html += `<label class="pchip${l ? "" : " free"}" title="${esc(tip)}"><input type="checkbox" value="${p}"${on}>` +
+      `<span><i class="pn">${p}</i><i class="pw">${esc(what)}</i></span></label>`;
   }
   $("periods").innerHTML = html;
   syncAll();
 }
-fillPeriods();
 $("day").addEventListener("change", fillPeriods);
+$("teacher").addEventListener("change", fillPeriods);
 $("periods").addEventListener("change", e => {
   if (e.target.id === "p-all") {
     for (const b of document.querySelectorAll("#periods input[value]")) b.checked = e.target.checked;
