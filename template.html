@@ -1113,7 +1113,8 @@ function fillPeriods() {
   const d = DATA.days.find(x => x.id === $("day").value) || DATA.days[0];
   const tid = $("teacher").value;
   const keep = new Set(pickedPeriods());
-  const every = !$("p-all") || $("p-all").checked;   // 하루 전체였다면 요일이 바뀌어도 하루 전체로 둔다
+  // 처음에는 아무 교시도 고르지 않는다. 하루 전체였다면 요일이 바뀌어도 그대로 둔다.
+  const every = Boolean($("p-all") && $("p-all").checked);
   let html = '<label class="pchip all"><input type="checkbox" id="p-all"><span>하루 전체</span></label><i class="sep"></i>';
   for (let p = 1; p <= d.periods; p += 1) {
     const l = byTeacherSlot.get(tid + "|" + d.id + "-" + p);
