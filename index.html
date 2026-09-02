@@ -12,7 +12,7 @@
   :root{
     color-scheme:light;
     --paper:#f6f5f2; --surface:#fff; --surface-2:#efeeea;
-    --ink:#1b1d21; --ink-soft:#5d636d; --ink-faint:#8b919b;
+    --ink:#1b1d21; --ink-soft:#5d636d; --ink-faint:#6f7580;
     --line:#e2e0da; --line-strong:#cdcac2;
     --absent:#8a3d63; --absent-fill:#f4e7ee; --absent-edge:#dcbccc;
     --cover:#1a6b66; --cover-fill:#e1efee; --cover-edge:#aacfcb;
@@ -62,6 +62,7 @@
   .field .lab{display:flex; align-items:baseline; gap:8px}
   .field .lab b{font-size:12px; font-weight:600; letter-spacing:0; text-transform:none;
     font-family:inherit; color:var(--absent)}
+  .field .lab b.day{color:var(--cover)}
   .periods{display:flex; flex-wrap:wrap; gap:5px; align-items:stretch}
   .pchip{position:relative; display:flex}
   .pchip > span{flex:1}
@@ -71,9 +72,8 @@
     min-width:66px; min-height:47px; padding:5px 7px; border-radius:2px;
     background:var(--surface-2); border:1px solid var(--line-strong); color:var(--ink);
   }
-  .pchip .pn{font-size:14px; font-weight:600; line-height:1}
-  .pchip .pw{font-size:10.5px; line-height:1; white-space:nowrap; color:var(--ink-faint)}
-  .pchip.free .pw{opacity:.75}
+  .pchip .pn{font-size:14px; font-weight:600; line-height:1; font-style:normal}
+  .pchip .pw{font-size:10.5px; line-height:1; white-space:nowrap; color:var(--ink-faint); font-style:normal}
   .pchip input:checked + span{background:var(--absent-fill); border-color:var(--absent); color:var(--absent)}
   .pchip input:checked + span .pw{color:var(--absent); opacity:.85}
   .pchip.all > span{min-width:60px; font-size:12.5px}
@@ -125,7 +125,24 @@
   .chip{font-size:11px; font-weight:600; letter-spacing:.05em; padding:3px 8px; border-radius:2px; white-space:nowrap; font-family:"IBM Plex Mono",monospace}
   .chip.full{color:var(--cover); background:var(--cover-fill); border:1px solid var(--cover-edge)}
   .chip.part{color:var(--warn); background:var(--warn-fill); border:1px solid var(--warn-edge)}
-  .load{font-size:11.5px; color:var(--ink-faint); font-family:"IBM Plex Mono",monospace; margin-top:3px}
+  .load{font-size:11.5px; color:var(--ink-faint); font-family:"IBM Plex Mono",monospace; margin-top:3px;
+    display:flex; align-items:center; gap:10px; flex-wrap:wrap}
+  .meter{display:inline-flex; gap:3px; align-items:center}
+  .meter i{display:block; width:14px; height:6px; border-radius:1px; background:var(--line)}
+  .meter em{font-style:normal; margin-left:5px}
+  .meter.low i.on{background:var(--cover)}   .meter.low em{color:var(--cover)}
+  .meter.mid i.on{background:var(--warn)}    .meter.mid em{color:var(--warn)}
+  .meter.high i.on{background:var(--absent)} .meter.high em{color:var(--absent)}
+  /* 계산 근거는 접어 둔다 */
+  .why{margin-top:26px; border:1px solid var(--line); border-radius:3px; background:var(--surface)}
+  .why summary{cursor:pointer; padding:11px 16px; font-size:13.5px; font-weight:600; display:flex; gap:10px; align-items:baseline; flex-wrap:wrap; list-style:none}
+  .why summary::before{content:""; display:inline-block; width:0; height:0; border-left:5px solid var(--ink-faint); border-top:4px solid transparent; border-bottom:4px solid transparent; margin-right:2px; transition:transform .15s}
+  .why[open] summary::before{transform:rotate(90deg)}
+  .why summary span{font-weight:400; color:var(--ink-faint); font-size:12.5px}
+  .why[open] summary{border-bottom:1px solid var(--line)}
+  .why-note{margin:10px 16px 0; font-size:13px; color:var(--ink-soft)}
+  .why .lesson{margin:0 16px}
+  .why[open]{padding-bottom:12px}
 
   /* 주간 격자 미니맵 */
   .week{padding:14px 16px 8px; display:grid; grid-template-columns:16px repeat(5,1fr); gap:2px; max-width:242px}
@@ -353,7 +370,7 @@
 
 <div class="wrap">
   <header class="masthead">
-    <span class="eyebrow">Reciprocal swap finder</span>
+    <span class="eyebrow" id="eyebrow">명지중학교</span>
     <h1>수업 교체 도우미</h1>
     <p>출장·연가·연수·병가로 비는 수업을, 같은 반의 다른 수업과 교시를 맞바꿔 메웁니다. 보강 없이 언제나 1대1 교환입니다.</p>
     <p class="src" id="src"></p>
@@ -361,30 +378,29 @@
 
   <nav class="tabs" role="tablist" aria-label="화면 선택">
     <button class="tab" role="tab" id="tab-swap" aria-selected="true" aria-controls="panel-swap">수업 교체</button>
-    <button class="tab" role="tab" id="tab-tt" aria-selected="false" aria-controls="panel-tt">교사·학급별</button>
+    <button class="tab" role="tab" id="tab-tt" aria-selected="false" aria-controls="panel-tt">시간표 보기</button>
     <button class="tab" role="tab" id="tab-all" aria-selected="false" aria-controls="panel-all">전체 학반</button>
   </nav>
 
   <div class="panel" id="panel-swap" role="tabpanel" aria-labelledby="tab-swap">
   <section class="console" aria-label="교체 조건">
     <div class="console-grid">
+      <label class="field"><span>대상 교사</span><select id="teacher"></select></label>
+      <label class="field"><span class="lab">결강 날짜<b id="day-label" class="day"></b></span><input type="date" id="date"></label>
       <label class="field"><span>사유</span>
         <select id="reason">
           <option>출장</option><option>연가</option><option>연수</option><option>병가</option><option>기타</option>
         </select>
       </label>
-      <label class="field"><span>대상 교사</span><select id="teacher"></select></label>
-      <label class="field"><span>결강 날짜</span><input type="date" id="date"></label>
-      <label class="field"><span>요일</span><select id="day"></select></label>
     </div>
+    <input type="hidden" id="day" value="월">
     <div class="console-row">
       <div class="field"><span class="lab">결강 교시<b id="p-sum"></b></span>
         <div class="periods" id="periods" role="group" aria-label="결강 교시"></div>
       </div>
       <button class="go" id="go" type="button">경우의 수 찾기</button>
     </div>
-    <p class="form-help">결강 수업과 <b>같은 반의 다른 수업</b>이 교시를 통째로 맞바꿉니다. 두 선생님 모두 자기 과목을 그대로 가르치므로 보강이 생기지 않습니다.
-      고르지 않은 교시는 <b>학교에 계신 것으로 봅니다</b> — 지각·조퇴라면 그 시간으로도 수업을 옮깁니다. 하루 종일 비우신다면 <b>하루 전체</b>를 고르세요.</p>
+    <p class="form-help">고르지 않은 교시는 <b>학교에 계신 것으로 봅니다</b> — 지각·조퇴라면 그 시간으로도 수업을 옮깁니다. 하루 종일 비우신다면 <b>하루 전체</b>를 누르세요.</p>
   </section>
 
   <div id="out"></div>
@@ -1162,8 +1178,23 @@ function coverOnlyCard(r) {
     </div>
     ${weekMap(blank, r)}
     <ol class="steps">${r.affected.map(l => missedItem(l, r)).join("")}</ol>
-    <div class="plan-foot"><button class="ghost" type="button" data-copy-cover="1">표 복사</button></div>
+    <div class="plan-foot"><button class="ghost" type="button" data-copy-cover="1">요약 복사</button></div>
   </article>`;
+}
+
+/* 부담 점수는 단계당 평균으로 본다 — 하루 전체 결강은 단계가 많아 합계만으로는 비교가 안 된다.
+   30 이하는 짧은 맞교환 수준, 48을 넘으면 회전이 길거나 부담 표시가 붙은 안이다. */
+function burdenOf(plan) {
+  const per = plan.steps.length ? plan.score / plan.steps.length : 0;
+  return per <= 30 ? { level: 1, word: "낮음", cls: "low" }
+       : per <= 48 ? { level: 2, word: "보통", cls: "mid" }
+       : { level: 3, word: "높음", cls: "high" };
+}
+function burdenMeter(plan) {
+  const b = burdenOf(plan);
+  return `<span class="meter ${b.cls}" title="부담 ${b.word}">` +
+    [1, 2, 3].map(k => `<i class="${k <= b.level ? "on" : ""}"></i>`).join("") +
+    `<em>부담 ${esc(b.word)}</em></span>`;
 }
 
 function planCard(plan, i, r) {
@@ -1189,7 +1220,7 @@ function planCard(plan, i, r) {
     <div class="plan-top">
       <div><div class="plan-name"><h3>대안 ${i + 1}${i === 0 ? " · 추천" : ""}</h3>
         ${sameDay ? '<b class="day-tag" title="그날 학교에 남아 다른 교시에 이 수업을 합니다">같은 날</b>' : ""}</div>
-        <div class="load">교체 ${done}건 · 수업 ${plan.steps.reduce((n, s) => n + s.length, 0)}개 이동 · 부담 ${plan.score}</div></div>
+        <div class="load"><span>교체 ${done}건 · 수업 ${plan.steps.reduce((n, s) => n + s.length, 0)}개 이동</span>${burdenMeter(plan)}</div></div>
       <span class="chip ${miss || planIsHard(plan) ? "part" : "full"}">${miss ? `${fixed}/${fixed + miss} 해결` : planIsHard(plan) ? "전부 해결 · 부담 큼" : "전부 해결"}</span>
     </div>
     ${weekMap(plan, r)}
@@ -1197,7 +1228,7 @@ function planCard(plan, i, r) {
     ${repeats.length ? `<div class="repeat">${repeats.map(x =>
       `<span>${esc(x.className)} ${x.day}요일 <b>${esc(x.subject)} ${x.count}시간</b></span>`).join("")}</div>` : ""}
     ${adviseBlock(plan, r)}
-    <div class="plan-foot"><button class="ghost" type="button" data-copy="${i}">표 복사</button><button class="ghost" type="button" data-report="${i}">신고서</button><button class="ghost" type="button" data-apply="${i}">전체 학반에서 보기</button></div>
+    <div class="plan-foot"><button class="ghost" type="button" data-copy="${i}">요약 복사</button><button class="ghost" type="button" data-report="${i}">신고서</button><button class="ghost" type="button" data-apply="${i}">전체 학반에서 보기</button></div>
   </article>`;
 }
 
@@ -1227,8 +1258,6 @@ function render(r) {
       <div class="hl-from"><span>영향 수업</span><strong>${r.affected.length}</strong></div>
       <div class="hl-to"><span>전부 해결</span><strong>${r.full}</strong></div>
       <div><span>부분 해결</span><strong>${r.plans.length - r.full}</strong></div>
-      <div><span>교체 후보</span><strong>${cand}</strong></div>
-      <div><span>탐색 노드</span><strong>${r.nodes}</strong></div>
     </div>
     <div class="heading"><h2>교체 조합</h2><p>${r.plans.length ? "부담이 낮은 순서입니다." : "맞바꿀 수 있는 짝이 없어 보강으로 메워야 합니다."}</p></div>
     <p class="legend"><span><i class="f"></i>결강 수업</span><span><i class="t"></i>맞바꿀 수업</span>
@@ -1236,8 +1265,9 @@ function render(r) {
     ${r.plans.length
       ? `<div class="plans">${r.plans.map((p, i) => planCard(p, i, r)).join("")}</div>`
       : `<div class="plans">${coverOnlyCard(r)}</div>`}
-    <div class="heading"><h2>수업별 교체 후보</h2><p>같은 반 안에서 그 수업 하나만 놓고 볼 때 맞바꿀 수 있는 교시입니다.</p></div>
-    ${lessons}`;
+    <details class="why"><summary>수업별 교체 후보 자세히 보기<span>왜 이 조합이 나왔는지 — 후보 ${cand}개</span></summary>
+      <p class="why-note">같은 반 안에서 그 수업 하나만 놓고 볼 때 맞바꿀 수 있는 교시입니다.</p>
+      ${lessons}</details>`;
 
   out.querySelectorAll("[data-copy]").forEach(btn => {
     btn.addEventListener("click", () => copy(planText(r.plans[Number(btn.dataset.copy)], r), btn));
@@ -1267,7 +1297,7 @@ async function copy(text, btn) {
       ok = document.execCommand("copy"); ta.remove();
     } catch (e) { /* 아래 직접 선택으로 넘어감 */ }
   }
-  if (ok) { btn.textContent = "복사했습니다"; setTimeout(() => { btn.textContent = "표 복사"; }, 1600); return; }
+  if (ok) { btn.textContent = "복사했습니다"; setTimeout(() => { btn.textContent = "요약 복사"; }, 1600); return; }
   const card = btn.closest(".plan");
   if (card.querySelector(".paste")) return;
   const ta = document.createElement("textarea");
@@ -1279,8 +1309,9 @@ async function copy(text, btn) {
 /* ── 조건 바 ──────────────────────────── */
 const $ = id => document.getElementById(id);
 $("src").textContent = DATA.name + " · 교사 " + DATA.teachers.length + "명 · 학급 " + DATA.classes.length + "개 · 배정 " + DATA.schedule.filter(l => l.type !== "special").length + "시간";
+{ const term = (DATA.name.match(/\d{4}학년도\s*\d학기/) || [""])[0];
+  $("eyebrow").textContent = "명지중학교" + (term ? " · " + term : ""); }
 $("teacher").innerHTML = ACTIVE.map(t => `<option value="${t.id}">${esc(t.name)}${t.subjects.length ? " · " + esc(t.subjects.join("/")) : ""}</option>`).join("");
-$("day").innerHTML = DATA.days.map(d => `<option value="${d.id}">${esc(d.label)}</option>`).join("");
 
 const pickedPeriods = () =>
   [...document.querySelectorAll("#periods input[value]")].filter(b => b.checked).map(b => Number(b.value));
@@ -1316,7 +1347,6 @@ function fillPeriods() {
   syncAll();
 }
 fillPeriods();
-$("day").addEventListener("change", fillPeriods);
 $("teacher").addEventListener("change", fillPeriods);
 $("periods").addEventListener("change", e => {
   if (e.target.id === "p-all") {
@@ -1638,18 +1668,22 @@ function nextDateFor(dayId, from) {
   d.setDate(d.getDate() + ((target - d.getDay() + 7) % 7));
   return d;
 }
+/* 요일은 날짜에서 나온다. 요일 상자를 따로 두면 두 상자가 서로를 가리켜 헷갈리므로,
+   숨긴 값 하나로 들고 날짜 라벨 옆에만 보여 준다. */
+function setDay(id) {
+  $("day").value = id;
+  $("day-label").textContent = id + "요일";
+  fillPeriods();
+}
 $("date").value = toValue(nextDateFor($("day").value));
+$("day-label").textContent = $("day").value + "요일";
 $("date").addEventListener("change", () => {
   if (!$("date").value) return;
   const d = fromValue($("date").value);
   const id = Object.keys(DAY_NUM).find(k => DAY_NUM[k] === d.getDay());
-  if (id) { $("day").value = id; fillPeriods(); return; }
+  if (id) { setDay(id); return; }
   // 주말을 고르면 다음 월요일로 옮긴다. 그대로 두면 신고서의 날짜가 한 주 뒤로 밀린다.
-  $("date").value = toValue(nextDateFor("월", d)); $("day").value = "월"; fillPeriods();
-});
-$("day").addEventListener("change", () => {
-  const from = $("date").value ? fromValue($("date").value) : null;
-  $("date").value = toValue(nextDateFor($("day").value, from));
+  $("date").value = toValue(nextDateFor("월", d)); setDay("월");
 });
 
 /* ── 화면 전환 ───────────────────────────── */
