@@ -379,7 +379,7 @@
   <nav class="tabs" role="tablist" aria-label="화면 선택">
     <button class="tab" role="tab" id="tab-swap" aria-selected="true" aria-controls="panel-swap">수업 교체</button>
     <button class="tab" role="tab" id="tab-tt" aria-selected="false" aria-controls="panel-tt">시간표 보기</button>
-    <button class="tab" role="tab" id="tab-all" aria-selected="false" aria-controls="panel-all">전체 학반</button>
+    <button class="tab" role="tab" id="tab-all" aria-selected="false" aria-controls="panel-all">전체 시간표</button>
   </nav>
 
   <div class="panel" id="panel-swap" role="tabpanel" aria-labelledby="tab-swap">
@@ -418,6 +418,12 @@
   </div>
 
   <div class="panel" id="panel-all" role="tabpanel" aria-labelledby="tab-all" hidden>
+    <div class="tt-controls">
+      <div class="seg" role="group" aria-label="전체 시간표 종류">
+        <button type="button" id="all-by-class" aria-pressed="true">학반별</button>
+        <button type="button" id="all-by-teacher" aria-pressed="false">교사별</button>
+      </div>
+    </div>
     <div id="all-out"></div>
   </div>
 
@@ -1097,7 +1103,7 @@ function planCard(plan, i, r) {
     ${repeats.length ? `<div class="repeat">${repeats.map(x =>
       `<span>${esc(x.className)} ${x.day}요일 <b>${esc(x.subject)} ${x.count}시간</b></span>`).join("")}</div>` : ""}
     ${adviseBlock(plan, r)}
-    <div class="plan-foot"><button class="ghost" type="button" data-copy="${i}">요약 복사</button><button class="ghost" type="button" data-report="${i}">신고서</button><button class="ghost" type="button" data-apply="${i}">전체 학반에서 보기</button></div>
+    <div class="plan-foot"><button class="ghost" type="button" data-copy="${i}">요약 복사</button><button class="ghost" type="button" data-report="${i}">신고서</button><button class="ghost" type="button" data-apply="${i}">전체 시간표에서 보기</button></div>
   </article>`;
 }
 
@@ -1461,30 +1467,37 @@ $("report-save").addEventListener("click", async () => {
 /* ── 전체 학반 시간표 ─────────────────────
    30개 학급을 한 판에 놓고, 고른 교체안을 적용한 모습까지 보여 준다. */
 let applied = null;
+let allMode = "class";   // "class" 학반별 | "teacher" 교사별
 
 function renderAllClasses() {
   const slots = [];
   for (const d of DATA.days) for (let p = 1; p <= d.periods; p += 1) slots.push({ day: d.id, period: p });
 
-  /* 교체안이 있으면 바뀔 칸을 미리 계산한다 */
+  /* 교체안이 있으면 바뀔 칸을 미리 계산한다 — 학반 기준과 교사 기준을 함께 */
   const change = new Map();   // "cid|요일-교시" → {subject, teacher, room}
+  const leave = new Set();    // "교사이름|요일-교시" — 이 자리를 떠나는 교사
+  const arrive = new Map();   // "교사이름|요일-교시" → {classId, subject} — 이 자리로 오는 교사
   if (applied) {
     for (const step of applied.plan.steps) {
       for (const sl of step.slots) {
-        change.set(step.classId + "|" + sl.day + "-" + sl.period,
-          { subject: sl.afterSubject, teacher: sl.afterTeacher, room: sl.afterRoom });
+        const k = sl.day + "-" + sl.period;
+        change.set(step.classId + "|" + k, { subject: sl.afterSubject, teacher: sl.afterTeacher, room: sl.afterRoom });
+        leave.add(sl.beforeTeacher + "|" + k);
+        arrive.set(sl.afterTeacher + "|" + k, { classId: step.classId, subject: sl.afterSubject });
       }
     }
   }
-  const gone = new Set();     // 결강이라 비는 칸
+  const gone = new Set();     // 결강이라 비는 칸 (학반 기준)
+  const away = new Set();     // 결강 교사가 자리를 비우는 교시
   if (applied) {
     for (const l of applied.r.affected) {
       const k = l.classId + "|" + l.day + "-" + l.period;
       if (!change.has(k)) gone.add(k);
+      away.add(l.day + "-" + l.period);
     }
   }
 
-  let head = '<tr><th scope="col" class="cn">학반</th>';
+  let head = '<tr><th scope="col" class="cn">' + (allMode === "class" ? "학반" : "교사") + '</th>';
   for (const d of DATA.days) {
     for (let p = 1; p <= d.periods; p += 1) {
       head += `<th scope="col" class="${p === 1 ? "daystart" : ""}">${p === 1 ? d.id : ""}<span>${p}</span></th>`;
@@ -1493,36 +1506,68 @@ function renderAllClasses() {
   head += "</tr>";
 
   let body = "";
-  for (const c of DATA.classes) {
-    body += `<tr><th scope="row" class="cn">${esc(c.name)}</th>`;
-    for (const sl of slots) {
-      const key = c.id + "|" + sl.day + "-" + sl.period;
-      const l = byClassSlot.get(key);
-      const start = sl.period === 1 ? " daystart" : "";
-      if (!l) { body += `<td class="none${start}"></td>`; continue; }
-      const now = change.get(key);
-      const empty = gone.has(key);
-      const subject = now ? now.subject : l.subject;
-      const teacher = now ? now.teacher : (T.get(l.teacherId) || {}).name || "";
-      const kind = empty ? " empty" : now ? " moved" : "";
-      body += `<td class="${l.type === "special" ? "sp" : ""}${kind}${start}" title="${esc(c.name)} ${sl.day}${sl.period} ${esc(subject)} ${esc(teacher)}">
-        <b>${esc(subject)}</b><i>${esc(empty ? "결강" : teacher)}</i></td>`;
+  if (allMode === "class") {
+    for (const c of DATA.classes) {
+      body += `<tr><th scope="row" class="cn">${esc(c.name)}</th>`;
+      for (const sl of slots) {
+        const key = c.id + "|" + sl.day + "-" + sl.period;
+        const l = byClassSlot.get(key);
+        const start = sl.period === 1 ? " daystart" : "";
+        if (!l) { body += `<td class="none${start}"></td>`; continue; }
+        const now = change.get(key);
+        const empty = gone.has(key);
+        const subject = now ? now.subject : l.subject;
+        const teacher = now ? now.teacher : (T.get(l.teacherId) || {}).name || "";
+        const kind = empty ? " empty" : now ? " moved" : "";
+        body += `<td class="${l.type === "special" ? "sp" : ""}${kind}${start}" title="${esc(c.name)} ${sl.day}${sl.period} ${esc(subject)} ${esc(teacher)}">
+          <b>${esc(subject)}</b><i>${esc(empty ? "결강" : teacher)}</i></td>`;
+      }
+      body += "</tr>";
     }
-    body += "</tr>";
+  } else {
+    /* 교사별 — 한 줄이 한 선생님. 결강 교사가 비우는 교시는 자두빛, 옮겨 간 자리는 청록. */
+    const absentName = applied ? applied.r.absent.name : "";
+    const teachers = [...ACTIVE].sort((a, b) => a.name.localeCompare(b.name, "ko"));
+    for (const t of teachers) {
+      body += `<tr><th scope="row" class="cn">${esc(t.name)}</th>`;
+      for (const sl of slots) {
+        const k = sl.day + "-" + sl.period;
+        const base = byTeacherSlot.get(t.id + "|" + k);
+        const start = sl.period === 1 ? " daystart" : "";
+        if (t.name === absentName && away.has(k)) {
+          body += `<td class="empty${start}" title="${esc(t.name)} ${k} 결강"><b>결강</b><i>${esc(base ? cls(base.classId) : "")}</i></td>`;
+          continue;
+        }
+        const now = arrive.get(t.name + "|" + k);
+        const l = now || (base && !leave.has(t.name + "|" + k) ? { classId: base.classId, subject: base.subject } : null);
+        if (!l) { body += `<td class="none${start}"></td>`; continue; }
+        body += `<td class="${now ? "moved" : ""}${start}" title="${esc(t.name)} ${k} ${esc(cls(l.classId))} ${esc(l.subject)}">
+          <b>${esc(cls(l.classId))}</b><i>${esc(l.subject)}</i></td>`;
+      }
+      body += "</tr>";
+    }
   }
 
   const note = applied
     ? `<div class="banner"><strong>대안 ${applied.index + 1} 적용 화면 · ${esc(applied.r.absent.name)} 선생님 ${applied.r.sel.day}요일 ${periodLabel(applied.r.sel)}</strong>
-        <p>바뀌는 칸은 청록으로, 아직 채우지 못한 칸은 자두빛으로 표시했습니다. 실제 시간표는 바뀌지 않습니다.
+        <p>${allMode === "class" ? "바뀌는 칸은 청록으로, 아직 채우지 못한 칸은 자두빛으로" : "옮겨 간 수업은 청록으로, 결강 선생님이 자리를 비우는 교시는 자두빛으로"} 표시했습니다. 실제 시간표는 바뀌지 않습니다.
         <button class="ghost" type="button" id="all-clear" style="margin-left:8px">원래대로 보기</button></p></div>`
-    : `<div class="banner none"><strong>2026학년도 2학기 전체 학반 시간표</strong>
-        <p>수업 교체에서 대안을 고른 뒤 ‘전체 학반에서 보기’를 누르면 바뀐 모습을 여기서 확인할 수 있습니다.</p></div>`;
+    : `<div class="banner none"><strong>${esc(DATA.name.replace(/\s*시간표$/, ""))} · 전체 ${allMode === "class" ? "학반" : "교사"} 시간표</strong>
+        <p>수업 교체에서 대안을 고른 뒤 ‘전체 시간표에서 보기’를 누르면 바뀐 모습을 여기서 확인할 수 있습니다.</p></div>`;
 
   $("all-out").innerHTML = note +
     `<div class="all-wrap"><table class="all"><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
   const clear = $("all-clear");
   if (clear) clear.addEventListener("click", () => { applied = null; renderAllClasses(); });
 }
+const allSetMode = mode => {
+  allMode = mode;
+  $("all-by-class").setAttribute("aria-pressed", String(mode === "class"));
+  $("all-by-teacher").setAttribute("aria-pressed", String(mode === "teacher"));
+  renderAllClasses();
+};
+$("all-by-class").addEventListener("click", () => allSetMode("class"));
+$("all-by-teacher").addEventListener("click", () => allSetMode("teacher"));
 
 /* ── 결강 날짜 ↔ 요일 연동 ───────────────── */
 const DAY_NUM = { 월:1, 화:2, 수:3, 목:4, 금:5 };
