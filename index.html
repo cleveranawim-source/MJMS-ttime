@@ -996,7 +996,8 @@ function solve(sel) {
     }
     units.push(u);
   }
-  const perLesson = units.map(u => ({ unit: u, lesson: u.head, options: optionsFor(u, [], new Set(), 8, sel) }));
+  // 수업별 후보는 계산된 것을 전부 보여 준다 — 접혀 있는 목록이라 길어도 된다
+  const perLesson = units.map(u => ({ unit: u, lesson: u.head, options: optionsFor(u, [], new Set(), Infinity, sel) }));
 
   const plans = [];
   let nodes = 0;
@@ -1009,7 +1010,9 @@ function solve(sel) {
     }
     const unit = units[i];
     if (used.has(unit.head.id)) { walk(i + 1, steps, temp, used, score, missed); return; }   // 블록 통째 이동에 이미 실렸다
-    for (const o of optionsFor(unit, temp, used, 6, sel)) {
+    /* 수업마다 SHOW개까지 본다. 6개로 자르면 한 교시 결강은 대안이 여섯 개를 넘지 못해,
+       계산은 됐는데 화면에 못 오르는 안이 평균 넷 중 셋이었다. 탐색량은 넉넉하다(노드 상한의 4%). */
+    for (const o of optionsFor(unit, temp, used, SHOW, sel)) {
       const nextUsed = new Set(used);
       for (const id of o.usedIds) nextUsed.add(id);
       walk(i + 1, steps.concat(o), temp.concat(o.temp), nextUsed, score + o.score, missed);
