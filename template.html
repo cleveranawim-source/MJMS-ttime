@@ -923,6 +923,10 @@ function solve(sel) {
 /* ── 그리기 ───────────────────────────── */
 const MAXP = Math.max(...DATA.days.map(d => d.periods));
 const cls = id => C.get(id)?.name || id;
+/* 화면에는 "1학년 1반"으로 적는다. 자료와 신고서의 "1-1"은 그대로 둔다 — 종이 양식의 관례다.
+   칸이 좁은 곳(교시 칸, 교사별 표)은 "1-1반". */
+const classLong = id => { const c = C.get(id); if (!c) return id; const m = /^(\d+)-(\d+)$/.exec(c.name); return m ? m[1] + "학년 " + m[2] + "반" : c.name; };
+const classShort = id => { const c = C.get(id); if (!c) return id; return /^\d+-\d+$/.test(c.name) ? c.name + "반" : c.name; };
 
 /* 고른 교시를 사람이 읽는 문구로 — 하루 전체 / 2~4교시 / 1·5교시 */
 function periodLabel(sel) {
@@ -966,7 +970,7 @@ function planText(plan, r) {
   const sameDay = plan.steps.length > 0 && plan.steps.every(s => s.sameDay);
   const mark = sameDay ? "  [같은 날 안에서]" : "";
   const rows = plan.steps.map((s, i) => [
-    (i + 1) + ". " + s.className + " — " + s.label + (!sameDay && s.sameDay ? " (같은 날 안에서)" : ""),
+    (i + 1) + ". " + classLong(s.classId) + " — " + s.label + (!sameDay && s.sameDay ? " (같은 날 안에서)" : ""),
     ...s.slots.map(sl => "   " + sl.day + " " + sl.period + "교시: " +
       sl.beforeSubject + "(" + sl.beforeTeacher + ") → " + sl.afterSubject + "(" + sl.afterTeacher + ")"),
   ].join("\n"));
@@ -980,7 +984,7 @@ function planText(plan, r) {
   const miss = plan.missed.map(l => {
     const free = freeTeachersAt(l.day, l.period, r.sel, l.classId).slice(0, 4)
       .map(f => f.name + (f.sameClass ? "(이 반 담당)" : f.sameGrade ? "(" + f.grade + "학년)" : "")).join(", ");
-    return "· " + l.day + " " + l.period + "교시 " + cls(l.classId) + " " + l.subject + " — " + missReason(l) +
+    return "· " + l.day + " " + l.period + "교시 " + classLong(l.classId) + " " + l.subject + " — " + missReason(l) +
       (free ? " (이 시간 공강: " + free + ")" : "");
   });
   const hardNotes = planIsHard(plan)
@@ -1045,7 +1049,7 @@ function repeatNotes(plan) {
         now.set(sub, (now.get(sub) || 0) + 1);
       }
       for (const [sub, cnt] of now) {
-        if (cnt > 1 && cnt > (was.get(sub) || 0)) out.push({ className: cls(s.classId), day, subject: sub, count: cnt });
+        if (cnt > 1 && cnt > (was.get(sub) || 0)) out.push({ className: classLong(s.classId), day, subject: sub, count: cnt });
       }
     }
   }
@@ -1057,7 +1061,7 @@ function roomNotes(plan) {
   const out = [];
   for (const s of plan.steps) {
     for (const sl of s.slots) {
-      if (sl.roomClash) out.push({ className: s.className, day: sl.day, period: sl.period, room: sl.afterRoom, subject: sl.afterSubject });
+      if (sl.roomClash) out.push({ className: classLong(s.classId), day: sl.day, period: sl.period, room: sl.afterRoom, subject: sl.afterSubject });
     }
   }
   return out;
@@ -1068,7 +1072,7 @@ function missedItem(l, r) {
   const free = freeTeachersAt(l.day, l.period, r.sel, l.classId).slice(0, 4);
   return `
     <li><span class="idx gap">—</span><div class="swap">
-      <div class="swap-head"><b>${esc(cls(l.classId))}</b>
+      <div class="swap-head"><b>${esc(classLong(l.classId))}</b>
         <span class="slot">${l.day} ${l.period}교시 ${esc(l.subject)}</span></div>
       <span class="sub">${esc(missReason(l))}.
       ${free.length ? "이 시간 공강: " + free.map(coverLabel).join(", ") + " — 보강을 부탁하세요."
@@ -1114,7 +1118,7 @@ function planCard(plan, i, r) {
   const rooms = roomNotes(plan);                                      // 교실을 새로 잡아야 하는 곳
   const steps = plan.steps.map((s, n) => `
     <li><span class="idx">${n + 1}</span><div class="swap">
-      <div class="swap-head"><b>${esc(s.className)}</b>
+      <div class="swap-head"><b>${esc(classLong(s.classId))}</b>
         <span>${esc(s.label)}</span>${!sameDay && s.sameDay ? '<b class="tag" title="그날 학교에 남아 다른 교시에 이 수업을 합니다">같은 날</b>' : ""}</div>
       <div class="moves">
         ${s.slots.map(sl => `
@@ -1159,7 +1163,7 @@ function render(r) {
       : `<li><span>같은 반 안에 옮길 수 있는 자리가 없습니다.</span></li>`;
     return `<details class="lesson"${x.options.length ? "" : " open"}>
       <summary><span class="per">${x.lesson.period}교시</span>
-        <b>${esc(cls(x.lesson.classId))} · ${esc(x.lesson.subject)}</b>
+        <b>${esc(classLong(x.lesson.classId))} · ${esc(x.lesson.subject)}</b>
         <span class="cnt">후보 ${x.options.length}</span></summary>
       <ul class="cands">${list}</ul></details>`;
   }).join("");
@@ -1251,8 +1255,8 @@ function fillPeriods() {
   for (let p = 1; p <= d.periods; p += 1) {
     const l = byTeacherSlot.get(tid + "|" + d.id + "-" + p);
     const on = every || keep.has(p) ? " checked" : "";
-    const what = l ? cls(l.classId) + " " + l.subject : "공강";
-    const tip = d.id + "요일 " + p + "교시 · " + what + (l && l.blockId ? " (2시간 연강)" : "");
+    const what = l ? classShort(l.classId) + " " + l.subject : "공강";
+    const tip = d.id + "요일 " + p + "교시 · " + (l ? classLong(l.classId) + " " + l.subject : "공강") + (l && l.blockId ? " (2시간 연강)" : "");
     html += `<label class="pchip${l ? "" : " free"}" title="${esc(tip)}"><input type="checkbox" value="${p}"${on}>` +
       `<span><i class="pn">${p}</i><i class="pw">${esc(what)}</i></span></label>`;
   }
@@ -1546,7 +1550,7 @@ function renderAllClasses() {
   let body = "";
   if (allMode === "class") {
     for (const c of DATA.classes) {
-      body += `<tr><th scope="row" class="cn">${esc(c.name)}</th>`;
+      body += `<tr><th scope="row" class="cn">${esc(classLong(c.id))}</th>`;
       for (const sl of slots) {
         const key = c.id + "|" + sl.day + "-" + sl.period;
         const l = byClassSlot.get(key);
@@ -1557,7 +1561,7 @@ function renderAllClasses() {
         const subject = now ? now.subject : l.subject;
         const teacher = now ? now.teacher : (T.get(l.teacherId) || {}).name || "";
         const kind = empty ? " empty" : now ? " moved" : "";
-        body += `<td class="${l.type === "special" ? "sp" : ""}${kind}${start}" title="${esc(c.name)} ${sl.day}${sl.period} ${esc(subject)} ${esc(teacher)}">
+        body += `<td class="${l.type === "special" ? "sp" : ""}${kind}${start}" title="${esc(classLong(c.id))} ${sl.day}${sl.period} ${esc(subject)} ${esc(teacher)}">
           <b>${esc(subject)}</b><i>${esc(empty ? "결강" : teacher)}</i></td>`;
       }
       body += "</tr>";
@@ -1573,14 +1577,14 @@ function renderAllClasses() {
         const base = byTeacherSlot.get(t.id + "|" + k);
         const start = sl.period === 1 ? " daystart" : "";
         if (t.name === absentName && away.has(k)) {
-          body += `<td class="empty${start}" title="${esc(t.name)} ${k} 결강"><b>결강</b><i>${esc(base ? cls(base.classId) : "")}</i></td>`;
+          body += `<td class="empty${start}" title="${esc(t.name)} ${k} 결강"><b>결강</b><i>${esc(base ? classShort(base.classId) : "")}</i></td>`;
           continue;
         }
         const now = arrive.get(t.name + "|" + k);
         const l = now || (base && !leave.has(t.name + "|" + k) ? { classId: base.classId, subject: base.subject } : null);
         if (!l) { body += `<td class="none${start}"></td>`; continue; }
-        body += `<td class="${now ? "moved" : ""}${start}" title="${esc(t.name)} ${k} ${esc(cls(l.classId))} ${esc(l.subject)}">
-          <b>${esc(cls(l.classId))}</b><i>${esc(l.subject)}</i></td>`;
+        body += `<td class="${now ? "moved" : ""}${start}" title="${esc(t.name)} ${k} ${esc(classLong(l.classId))} ${esc(l.subject)}">
+          <b>${esc(classShort(l.classId))}</b><i>${esc(l.subject)}</i></td>`;
       }
       body += "</tr>";
     }
@@ -1668,7 +1672,7 @@ $("tt-entity").addEventListener("change", renderTimetable);
 
 function fillEntities() {
   const list = ttMode === "class"
-    ? DATA.classes.map(c => ({ id: c.id, label: c.name }))
+    ? DATA.classes.map(c => ({ id: c.id, label: classLong(c.id) }))
     : ACTIVE.map(t => ({ id: t.id, label: t.name + (t.subjects.length ? " · " + t.subjects.join("/") : "") }));
   $("tt-entity").innerHTML = list.map(x => `<option value="${x.id}">${esc(x.label)}</option>`).join("");
 }
@@ -1689,7 +1693,7 @@ function renderTimetable() {
       if (!l) { body += '<td class="free"></td>'; continue; }
       const side = ttMode === "class"
         ? (T.get(l.teacherId)?.name || "")
-        : cls(l.classId);
+        : classLong(l.classId);
       const room = l.room || "";
       body += `<td><span class="tt-sub">${esc(l.subject)}</span><span class="tt-meta">${esc(side)}${room ? " · " + esc(room) : ""}</span></td>`;
     }
