@@ -39,7 +39,7 @@
         const d = monthDay(dateForDay(baseDate, sl.day));
         rows.push({
           left:  [sl.beforeSubject, d, sl.day, String(sl.period), where(s.className, sl.beforeRoom), sl.beforeTeacher],
-          right: [sl.afterSubject, d, sl.day, String(sl.period), where(s.className, sl.afterRoom), sl.afterTeacher],
+          right: [sl.afterSubject, d, sl.day, String(sl.period), where(s.className, sl.roomClash ? "교실 배정 필요" : sl.afterRoom), sl.afterTeacher],
         });
       }
     }
