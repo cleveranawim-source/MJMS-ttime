@@ -207,6 +207,7 @@
     font-family:"IBM Plex Mono",monospace;
   }
   .strain.hard{color:var(--warn); font-weight:500}
+  .strain.over{color:var(--absent); font-weight:600}
   .repeat{
     display:flex; flex-wrap:wrap; gap:6px; margin:10px 16px 0; padding-top:9px;
     border-top:1px dashed var(--line); font-size:11.5px; color:var(--ink-soft);
@@ -666,13 +667,19 @@ function periodsOn(tid, day, temp, omit, sel) {
   for (const t of temp) if (t.teacherId === tid && t.day === day) out.push(t.period);
   return out;
 }
-function loadOk(teacher, temp, omit, sel) {
+/* 한도를 넘는 날의 목록. 넘어도 막지 않고 적는다 — 학교가 그렇게 정했다(2026-09-09).
+   빈 목록이면 모든 날이 한도 안이다. */
+function overLoad(teacher, temp, omit, sel) {
+  const out = [];
   for (const d of DATA.days) {
     const p = periodsOn(teacher.id, d.id, temp, omit, sel);
-    if (p.length > capFor(teacher.id, d.id)) return false;
-    if (consecutiveMax(p) > consecFor(teacher.id, d.id)) return false;
+    const cap = capFor(teacher.id, d.id), runCap = consecFor(teacher.id, d.id), run = consecutiveMax(p);
+    if (p.length > cap || run > runCap) {
+      out.push({ teacher: teacher.name, day: d.id, count: p.length, cap, run, runCap,
+                 dayOver: p.length > cap, runOver: run > runCap });
+    }
   }
-  return true;
+  return out;
 }
 
 const stateAt = (teacher, day, period) => teacher.slotStates[day + "-" + period] || "available";
@@ -710,8 +717,9 @@ function strainOf(touched, temp, usedIds, add, omit, sel) {
     const before = periodsOn(tid, day, temp, usedIds, sel);
     const after = periodsOn(tid, day, add, omit, sel);
     const beforeRun = consecutiveMax(before), afterRun = consecutiveMax(after);
-    const runUp = afterRun >= 4 && afterRun > beforeRun;                    // 4연속이 새로 생김
     const cap = capFor(tid, day);
+    if (after.length > cap || afterRun > consecFor(tid, day)) continue;      // 넘는 날은 따로 "한도 초과"로 적는다
+    const runUp = afterRun >= 4 && afterRun > beforeRun;                    // 4연속이 새로 생김
     const loadUp = after.length > before.length && after.length >= cap;   // 하루 한도까지 참
     if (!runUp && !loadUp) continue;
     notes.push({
@@ -776,7 +784,10 @@ function coverLabel(f) {
    연속 4시간은 허용 범위라 표시만 하고 무리의 사유로 삼지 않는다. */
 const heavyTeachers = plan =>
   [...new Set(plan.steps.flatMap(s => s.strain || []).filter(n => n.heavy).map(n => n.teacher))];
-const planIsHard = plan => heavyTeachers(plan).length >= 2;
+const overNotes = plan => plan.steps.flatMap(s => s.over || []);
+const planIsHard = plan => heavyTeachers(plan).length >= 2 || overNotes(plan).length > 0;
+const overLine = n => n.teacher + " 선생님 " + n.day + "요일 " +
+  [n.dayOver ? "하루 " + n.count + "시간 (한도 " + n.cap + ")" : "", n.runOver ? "연속 " + n.run + "시간 (한도 " + n.runCap + ")" : ""].filter(Boolean).join(" · ");
 
 function hardReason(n) {
   return n.teacher + " 선생님 " + n.day + "요일 " + n.count + "시간(한도 " + n.maxCount + ")";
@@ -784,7 +795,8 @@ function hardReason(n) {
 
 const CYCLE_MAX = 3;      // 한 회전에 참여하는 수업 수 상한
 const SUBJECT_CAP = 2;   // 한 반이 하루에 같은 과목을 받을 수 있는 최대 시간
-const ROOM_WEIGHT = 12;  // 교실을 새로 잡아야 하는 자리 하나당 더하는 부담 — 이틀 떨어진 값과 비슷하다
+const ROOM_WEIGHT = 12;
+const OVER_WEIGHT = 60;  // 한도를 넘는 날 하나당 — 다른 어떤 안보다 뒤에 서게  // 교실을 새로 잡아야 하는 자리 하나당 더하는 부담 — 이틀 떨어진 값과 비슷하다
 /* 상대 선생님의 주당 시수가 평균보다 적으면 부담을 덜고, 많으면 더한다.
    시수가 적은 분(진로·종교 등)과의 안을 앞세우기로 학교가 정했다(2026-09-09). */
 const LOAD_WEIGHT = 1;
@@ -868,9 +880,8 @@ function optionsFor(unit, temp, usedIds, limit, sel) {
     }
     const omit = new Set(usedIds);
     for (const x of chain) omit.add(x.id);
-    for (const id of new Set(chain.map(x => x.teacherId))) {
-      if (!loadOk(T.get(id), add, omit, sel)) return;
-    }
+    const over = [];
+    for (const id of new Set(chain.map(x => x.teacherId))) over.push(...overLoad(T.get(id), add, omit, sel));
 
     let score = (chain.length - 2) * 30;   // 짧은 회전을 강하게 우선한다
     let avoided = false;
@@ -894,8 +905,8 @@ function optionsFor(unit, temp, usedIds, limit, sel) {
       kind: "cycle", length: chain.length, own: 1, fixed: 1, roomClashes: clashes,
       label: chain.length === 2 ? "두 수업 맞교환" : chain.length + "개 수업 자리 이동",
       sameDay: slots.every(sl => sl.day === lesson.day),
-      slots, avoided, strain, heavy,
-      score: score + strain.length * 6 + heavy * 18,   // 부담되는 안은 뒤로
+      slots, avoided, strain, heavy, over,
+      score: score + strain.length * 6 + heavy * 18 + over.length * OVER_WEIGHT,   // 부담되는 안은 뒤로, 한도를 넘는 안은 맨 뒤로
       usedIds: chain.slice(1).map(x => x.id),
       temp: add.slice(temp.length),
     });
@@ -935,11 +946,8 @@ function optionsFor(unit, temp, usedIds, limit, sel) {
            classId: m.from.classId, subject: m.from.subject })));
       const omit = new Set(usedIds);
       for (const x of block.concat(pair)) omit.add(x.id);
-      let ok = true;
-      for (const id of new Set(moves.map(m => m.from.teacherId))) {
-        if (!loadOk(T.get(id), add, omit, sel)) { ok = false; break; }
-      }
-      if (!ok) continue;
+      const over = [];
+      for (const id of new Set(moves.map(m => m.from.teacherId))) over.push(...overLoad(T.get(id), add, omit, sel));
 
       let score = -15, avoided = false;   // 블록이 붙은 채로 남으므로 쪼개는 안보다 앞에 둔다
       for (const m of moves) {
@@ -967,8 +975,8 @@ function optionsFor(unit, temp, usedIds, limit, sel) {
         fixed: block.filter(x => inWindow(x.day, x.period, sel)).length,
         label: block[0].subject + " 블록 통째로 옮기고 두 수업이 그 자리로",
         sameDay: slots.every(sl => sl.day === lesson.day),
-        slots, avoided, strain, heavy,
-        score: score + strain.length * 6 + heavy * 18,
+        slots, avoided, strain, heavy, over,
+        score: score + strain.length * 6 + heavy * 18 + over.length * OVER_WEIGHT,
         usedIds: block.concat(pair).filter(x => !own.has(x.id)).map(x => x.id),
         temp: add.slice(temp.length),
       });
@@ -1040,7 +1048,10 @@ function solve(sel) {
   if (units.length) walk(0, [], [], new Set(), 0, []);
 
   const seen = new Set(), unique = [];
-  plans.sort((a, b) => a.missed.length - b.missed.length || a.score - b.score);
+  /* 못 메운 수업이 적은 안, 그다음 한도를 넘지 않는 안, 그다음 부담이 낮은 안.
+     한도를 넘는 안은 적어서 보여 주되 한도 안의 안보다 앞에 서지 않는다. */
+  const overCount = p => p.steps.reduce((k, s) => k + (s.over || []).length, 0);
+  plans.sort((a, b) => a.missed.length - b.missed.length || overCount(a) - overCount(b) || a.score - b.score);
   for (const p of plans) {
     const key = p.steps.map(s => s.lessonId + ">" + s.slots.map(x => x.day + x.period).join("+")).join("|");
     if (seen.has(key)) continue;
@@ -1112,6 +1123,7 @@ function planText(plan, r) {
     "· " + x.className + " " + x.day + "요일 " + x.subject + " " + x.count + "시간");
   const rooms = roomNotes(plan).map(x =>
     "· " + x.className + " " + x.day + " " + x.period + "교시 " + x.subject + " — " + x.room + "호가 그 시간에 사용 중, 교실 새로 배정");
+  const overs = overNotes(plan).map(n => "· " + overLine(n));
   const miss = plan.missed.map(l => {
     const free = freeTeachersAt(l.day, l.period, r.sel, l.classId).slice(0, 4)
       .map(f => f.name + (f.sameClass ? "(이 반 담당)" : f.sameGrade ? "(" + f.grade + "학년)" : "")).join(", ");
@@ -1120,8 +1132,10 @@ function planText(plan, r) {
   });
   const hardNotes = planIsHard(plan)
     ? plan.steps.flatMap(s => s.strain || []).filter(n => n.heavy) : [];
-  const advise = hardNotes.length
-    ? ["", "[권고] " + heavyTeachers(plan).join("·") + " 선생님의 하루가 한도까지 찹니다 — " + hardNotes.map(hardReason).join(", ") + ".",
+  const advise = hardNotes.length || overs.length
+    ? ["", "[권고] " + (overs.length
+         ? [...new Set(overNotes(plan).map(n => n.teacher))].join("·") + " 선생님의 한도를 넘깁니다 — " + overNotes(plan).map(overLine).join(", ") + "."
+         : heavyTeachers(plan).join("·") + " 선생님의 하루가 한도까지 찹니다 — " + hardNotes.map(hardReason).join(", ") + "."),
        "아래 공강 교사에게 보강을 부탁하는 편이 나을 수 있습니다.",
        ...freeTeachersAt(r.affected[0].day, r.affected[0].period, r.sel, r.affected[0].classId)
          .filter(f => !hardNotes.some(n => n.teacher === f.name)).slice(0, 5)
@@ -1131,6 +1145,7 @@ function planText(plan, r) {
     ...(strain.length ? ["", "[부담 확인]", ...strain] : []),
     ...(twice.length ? ["", "[같은 과목이 하루에 두 시간]", ...twice] : []),
     ...(rooms.length ? ["", "[교체는 가능하나 교실 배정 필요]", ...rooms] : []),
+    ...(overs.length ? ["", "[한도 초과 — 규칙을 넘는 안입니다]", ...overs] : []),
     ...(miss.length ? ["", "[미해결]", ...miss] : []),
     ...advise].join("\n");
 }
@@ -1145,15 +1160,20 @@ function strainLine(n) {
 function adviseBlock(plan, r) {
   if (!planIsHard(plan)) return "";
   const hardNotes = plan.steps.flatMap(s => s.strain || []).filter(n => n.heavy);
+  const overs = overNotes(plan);
   const slot = r.affected[0];
-  const strained = new Set(plan.steps.flatMap(s => s.strain || []).map(n => n.teacher));
+  const strained = new Set(plan.steps.flatMap(s => s.strain || []).map(n => n.teacher).concat(overs.map(n => n.teacher)));
   const free = freeTeachersAt(slot.day, slot.period, r.sel, slot.classId)
     .filter(f => !strained.has(f.name)).slice(0, 5);
   const who = free.map(coverLabel).join(", ");
-  return '<div class="advise">'
-    + "<strong>여러 선생님이 한도까지 찹니다</strong>"
-    + "<p>이 안은 <b>" + esc(heavyTeachers(plan).join("·")) + "</b> 선생님의 하루를 한도까지 채웁니다 — "
-    + esc(hardNotes.map(hardReason).join(", ")) + ". "
+  const lead = overs.length
+    ? "<strong>한도를 넘는 안입니다</strong>"
+      + "<p>이 안은 <b>" + esc([...new Set(overs.map(n => n.teacher))].join("·")) + "</b> 선생님의 한도를 넘깁니다 — "
+      + esc(overs.map(overLine).join(", ")) + ". "
+    : "<strong>여러 선생님이 한도까지 찹니다</strong>"
+      + "<p>이 안은 <b>" + esc(heavyTeachers(plan).join("·")) + "</b> 선생님의 하루를 한도까지 채웁니다 — "
+      + esc(hardNotes.map(hardReason).join(", ")) + ". ";
+  return '<div class="advise">' + lead
     + "교체를 밀어붙이기보다, " + slot.day + " " + slot.period + "교시에 공강인 선생님께 보강을 부탁하는 편이 나을 수 있습니다."
     + (who ? "<br><b>그 시간 공강</b> — " + who : " 다만 그 시간에 공강인 선생님이 없습니다.")
     + "</p></div>";
@@ -1261,6 +1281,7 @@ function planCard(plan, i, r) {
             : sl.afterRoom ? ` <span class="room">${esc(sl.afterRoom)}</span>` : ""}</span>`).join("")}
       </div>
       ${(s.strain || []).map(n => `<span class="strain ${n.heavy ? "hard" : ""}">${n.heavy ? "！" : "·"} ${strainLine(n)}</span>`).join("")}
+      ${(s.over || []).map(n => `<span class="strain over">！ 한도 초과 — ${esc(overLine(n))}</span>`).join("")}
     </div></li>`).join("");
   const missed = plan.missed.map(l => missedItem(l, r)).join("");
   return `<article class="plan ${i === 0 ? "best" : ""}">
