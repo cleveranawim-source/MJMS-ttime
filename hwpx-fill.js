@@ -11,7 +11,7 @@
   const DAY_NUM = { 월: 1, 화: 2, 수: 3, 목: 4, 금: 5 };
   const HEAD_ROWS = 2;          // 그룹 머리글 + 열 머리글
   const BASE_ROWS = 8;          // 양식 원본 전체 행 수
-  const NAME_REF = "20";        // 교체교사명 글자모양
+  const NAME_REF = "8";         // 교체교사명 글자모양(양식이 그 칸에 쓰는 값)
   const CELL_REF = "10";        // 일반 칸 글자모양
 
   const xmlEscape = v => String(v ?? "")
@@ -124,6 +124,10 @@
         ? cells(r.left.concat(r.right.slice(0, 5), r.right[5] + " (서명 또는 인)", ""))
         : cells(["", "", "", "", "", "", "", "", "", "", "", " (서명 또는 인)", ""]));
     }
+    // 담임 교체서는 손으로 적는 칸이라 양식 그대로 비워 둔다.
+    lines.push("", "담임 교체서",
+      cells(["학년 반", "담 임", "교체 담임  (서명 또는 인)", "기간", "비고"]),
+      cells(["", "", " (서명 또는 인)", "", ""]));
     return lines.join("\n") + "\n";
   }
 
