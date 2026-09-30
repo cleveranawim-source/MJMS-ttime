@@ -1,4 +1,5 @@
-/* template.html + 시간표 자료 + 신고서 양식 → index.html
+/* template.html + 계산기(engine.js) + 시간표 자료 + 신고서 양식 → index.html
+   시간표 자료는 timetable.json으로도 따로 내놓는다 — 서버에서 engine.js와 함께 돌릴 때 쓴다.
    실행: node build.mjs
 
    timetable-source.js는 시간표 공방 앱이 내보낸 프로젝트 자료다.
@@ -33,15 +34,18 @@ function slimData() {
   });
 }
 
+const data = slimData();
 const parts = {
-  "/*__DATA__*/": slimData(),
+  "/*__ENGINE__*/": fs.readFileSync(path.join(dir, "engine.js"), "utf8").trimEnd(),
+  "/*__DATA__*/": data,
   "/*__HWPXFILL__*/": fs.readFileSync(path.join(dir, "hwpx-fill.js"), "utf8"),
   "/*__HWPX_TPL__*/": fs.readFileSync(path.join(dir, "form-template.hwpx")).toString("base64"),
 };
 let out = fs.readFileSync(path.join(dir, "template.html"), "utf8");
 for (const [mark, value] of Object.entries(parts)) {
   if (!out.includes(mark)) throw new Error(`자리표시자를 찾지 못했습니다: ${mark}`);
-  out = out.replace(mark, value);
+  out = out.replace(mark, () => value);   // 함수로 넘겨야 값 속의 $& 같은 글자를 그대로 둔다
 }
 fs.writeFileSync(path.join(dir, "index.html"), out);
+fs.writeFileSync(path.join(dir, "timetable.json"), data);
 console.log("index.html:", (Buffer.byteLength(out) / 1024 / 1024).toFixed(2) + "MB");
