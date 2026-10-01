@@ -491,3 +491,162 @@ function solve(sel) {
   return { absent, sel, affected, perLesson, plans: unique, nodes,
            full: unique.filter(p => !p.missed.length).length };
 }
+
+/* ── 설명 ─────────────────────────────── */
+/* 화면에는 "1학년 1반"으로 적는다. 자료와 신고서의 "1-1"은 그대로 둔다 — 종이 양식의 관례다.
+   칸이 좁은 곳(교시 칸, 교사별 표)은 "1-1반". */
+const classLong = id => { const c = C.get(id); if (!c) return id; const m = /^(\d+)-(\d+)$/.exec(c.name); return m ? m[1] + "학년 " + m[2] + "반" : c.name; };
+const classShort = id => { const c = C.get(id); if (!c) return id; return /^\d+-\d+$/.test(c.name) ? c.name + "반" : c.name; };
+
+/* 고른 교시를 사람이 읽는 문구로 — 하루 전체 / 2~4교시 / 1·5교시 */
+function periodLabel(sel) {
+  const d = DATA.days.find(x => x.id === sel.day);
+  const ps = [...sel.periods].sort((a, b) => a - b);
+  if (!ps.length) return "선택 없음";
+  if (d && ps.length === d.periods) return "하루 전체";
+  if (ps.length === 1) return ps[0] + "교시";
+  const solid = ps.every((p, i) => i === 0 || p === ps[i - 1] + 1);
+  return (solid ? ps[0] + "~" + ps[ps.length - 1] : ps.join("·")) + "교시";
+}
+
+const missReason = l => l.locked || l.type === "special" ? "고정수업이라 옮길 수 없음"
+  : noSwap(l) ? "강사가 맡는 수업이라 교체하지 않음"
+  : "같은 반 안에 옮길 자리가 없음";
+
+function planText(plan, r) {
+  const head = r.absent.name + " 선생님 " + r.sel.day + "요일 " + periodLabel(r.sel) + " " + r.sel.reason
+    + (plan.steps.length ? " · 수업 교체안" : " · 보강 요청");
+  const sameDay = plan.steps.length > 0 && plan.steps.every(s => s.sameDay);
+  const mark = sameDay ? "  [같은 날 안에서]" : "";
+  const rows = plan.steps.map((s, i) => [
+    (i + 1) + ". " + classLong(s.classId) + " — " + s.label + (!sameDay && s.sameDay ? " (같은 날 안에서)" : ""),
+    ...s.slots.map(sl => "   " + sl.day + " " + sl.period + "교시: " +
+      sl.beforeSubject + "(" + sl.beforeTeacher + ") → " + sl.afterSubject + "(" + sl.afterTeacher + ")"),
+  ].join("\n"));
+  const strain = plan.steps.flatMap(s => (s.strain || []).map(n =>
+    "· " + n.teacher + " 선생님 " + n.day + "요일 " +
+    [n.runUp ? "연속 " + n.run + "시간" : "", n.loadUp ? "하루 " + n.count + "시간(한도 " + n.maxCount + ")" : ""].filter(Boolean).join(" · ")));
+  const twice = repeatNotes(plan).map(x =>
+    "· " + x.className + " " + x.day + "요일 " + x.subject + " " + x.count + "시간");
+  const rooms = roomNotes(plan).map(x =>
+    "· " + x.className + " " + x.day + " " + x.period + "교시 " + x.subject + " — " + x.room + "호가 그 시간에 사용 중, 교실 새로 배정");
+  const overs = overNotes(plan).map(n => "· " + overLine(n));
+  const miss = plan.missed.map(l => {
+    const free = freeTeachersAt(l.day, l.period, r.sel, l.classId).slice(0, 4)
+      .map(f => f.name + (f.sameClass ? "(이 반 담당)" : f.sameGrade ? "(" + f.grade + "학년)" : "")).join(", ");
+    return "· " + l.day + " " + l.period + "교시 " + classLong(l.classId) + " " + l.subject + " — " + missReason(l) +
+      (free ? " (이 시간 공강: " + free + ")" : "");
+  });
+  const hardNotes = planIsHard(plan)
+    ? plan.steps.flatMap(s => s.strain || []).filter(n => n.heavy) : [];
+  const advise = hardNotes.length || overs.length
+    ? ["", "[권고] " + (overs.length
+         ? [...new Set(overNotes(plan).map(n => n.teacher))].join("·") + " 선생님의 한도를 넘깁니다 — " + overNotes(plan).map(overLine).join(", ") + "."
+         : heavyTeachers(plan).join("·") + " 선생님의 하루가 한도까지 찹니다 — " + hardNotes.map(hardReason).join(", ") + "."),
+       "아래 공강 교사에게 보강을 부탁하는 편이 나을 수 있습니다.",
+       ...freeTeachersAt(r.affected[0].day, r.affected[0].period, r.sel, r.affected[0].classId)
+         .filter(f => !hardNotes.some(n => n.teacher === f.name)).slice(0, 5)
+         .map(f => "· " + f.name + "(" + [f.subjects, f.sameClass ? "이 반 담당" : f.sameGrade ? f.grade + "학년 담당" : ""].filter(Boolean).join(", ") + ")")]
+    : [];
+  return [head + mark, "", ...rows,
+    ...(strain.length ? ["", "[부담 확인]", ...strain] : []),
+    ...(twice.length ? ["", "[같은 과목이 하루에 두 시간]", ...twice] : []),
+    ...(rooms.length ? ["", "[교체는 가능하나 교실 배정 필요]", ...rooms] : []),
+    ...(overs.length ? ["", "[한도 초과 — 규칙을 넘는 안입니다]", ...overs] : []),
+    ...(miss.length ? ["", "[미해결]", ...miss] : []),
+    ...advise].join("\n");
+}
+
+/* 부담 한 줄(글자만). 화면은 이것을 esc해서 쓴다. */
+function strainText(n) {
+  const parts = [];
+  if (n.runUp) parts.push("연속 " + n.run + "시간" + (n.run >= n.maxRun ? " (한도 " + n.maxRun + ")" : ""));
+  if (n.loadUp) parts.push("하루 " + n.count + "시간 (한도 " + n.maxCount + ")");
+  return n.teacher + " 선생님 " + n.day + "요일 " + parts.join(" · ");
+}
+
+/* 이 안을 쓰면 한 반이 하루에 같은 과목을 두 시간 받게 되는 곳.
+   규칙상 두 시간까지는 되므로 막지 않고, 보고 판단하시라고 적어만 둔다.
+   원래부터 두 시간이던 미술 연강은 새로 생긴 것이 아니므로 뺀다. */
+function repeatNotes(plan) {
+  const after = new Map();   // "cid|요일-교시" → 바뀐 뒤 과목
+  for (const s of plan.steps) {
+    for (const sl of s.slots) after.set(s.classId + "|" + sl.day + "-" + sl.period, sl.afterSubject);
+  }
+  const out = [], seen = new Set();
+  for (const s of plan.steps) {
+    for (const day of new Set(s.slots.map(x => x.day))) {
+      const key = s.classId + "|" + day;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const was = new Map(), now = new Map();
+      for (const l of byClassDay.get(key) || []) {
+        was.set(l.subject, (was.get(l.subject) || 0) + 1);
+        const sub = after.get(key + "-" + l.period) || l.subject;
+        now.set(sub, (now.get(sub) || 0) + 1);
+      }
+      for (const [sub, cnt] of now) {
+        if (cnt > 1 && cnt > (was.get(sub) || 0)) out.push({ className: classLong(s.classId), day, subject: sub, count: cnt });
+      }
+    }
+  }
+  return out;
+}
+
+/* 교실을 새로 잡아야 하는 자리. 교체 자체는 되므로 막지 않고 적어만 둔다. */
+function roomNotes(plan) {
+  const out = [];
+  for (const s of plan.steps) {
+    for (const sl of s.slots) {
+      if (sl.roomClash) out.push({ className: classLong(s.classId), day: sl.day, period: sl.period, room: sl.afterRoom, subject: sl.afterSubject });
+    }
+  }
+  return out;
+}
+
+/* 부담 점수는 단계당 평균으로 본다 — 하루 전체 결강은 단계가 많아 합계만으로는 비교가 안 된다.
+   30 이하는 짧은 맞교환 수준, 48을 넘으면 회전이 길거나 부담 표시가 붙은 안이다. */
+function burdenOf(plan) {
+  const per = plan.steps.length ? plan.score / plan.steps.length : 0;
+  return per <= 30 ? { level: 1, word: "낮음", cls: "low" }
+       : per <= 48 ? { level: 2, word: "보통", cls: "mid" }
+       : { level: 3, word: "높음", cls: "high" };
+}
+
+/* 한 안의 설명을 화면 없이 묶어 낸다. AI 교무실이 카드와 AI 답에 쓴다.
+   수업교체 도우미 화면(planCard·planText)과 같은 함수에서 나오므로 두 곳의 설명이 같다. */
+function roomUser(room, day, period) {
+  const l = byRoomSlot.get(room + "|" + day + "-" + period);
+  if (!l) return "";
+  const who = T.get(l.teacherId);
+  return classLong(l.classId) + " " + l.subject + (who ? "(" + who.name + ")" : "");
+}
+function explainPlan(plan, r) {
+  const b = burdenOf(plan);
+  const hard = planIsHard(plan);
+  return {
+    burden: { level: b.level, word: b.word },
+    hard,
+    steps: plan.steps.map(s => ({
+      className: classLong(s.classId),
+      strain: (s.strain || []).map(n => ({ text: strainText(n), heavy: Boolean(n.heavy) })),
+      over: (s.over || []).map(overLine),
+    })),
+    rooms: roomNotes(plan).map(x => {
+      const user = roomUser(x.room, x.day, x.period);
+      return x.className + " " + x.day + " " + x.period + "교시 " + x.subject + " — 원래 교실(" + x.room + ")은 그 시간에 "
+        + (user ? user + " 수업" : "다른 수업") + "이 쓰고 있어 교실을 새로 정해야 합니다";
+    }),
+    repeats: repeatNotes(plan).map(x => x.className + "은 " + x.day + "요일에 " + x.subject + " 수업을 " + x.count + "시간 듣게 됩니다"),
+    missed: plan.missed.map(l => ({
+      text: l.day + " " + l.period + "교시 " + classLong(l.classId) + " " + l.subject + " — " + missReason(l),
+      free: freeTeachersAt(l.day, l.period, r.sel, l.classId).slice(0, 4).map(f =>
+        f.name + (f.sameClass ? "(이 반 담당)" : f.sameGrade ? "(" + f.grade + "학년 담당)" : "")),
+    })),
+    advise: hard ? (overNotes(plan).length
+      ? [...new Set(overNotes(plan).map(n => n.teacher))].join("·") + " 선생님의 한도를 넘깁니다 — " + overNotes(plan).map(overLine).join(", ")
+      : heavyTeachers(plan).join("·") + " 선생님의 하루가 한도까지 찹니다 — " + plan.steps.flatMap(s => s.strain || []).filter(n => n.heavy).map(hardReason).join(", "))
+      + ". 그 시간 공강인 선생님께 보강을 부탁하는 편이 나을 수 있습니다." : null,
+    text: planText(plan, r),
+  };
+}
