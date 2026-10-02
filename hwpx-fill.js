@@ -12,7 +12,11 @@
   const HEAD_ROWS = 2;          // 그룹 머리글 + 열 머리글
   const BASE_ROWS = 8;          // 양식 원본 전체 행 수
   const NAME_REF = "8";         // 교체교사명 글자모양(양식이 그 칸에 쓰는 값)
-  const CELL_REF = "10";        // 일반 칸 글자모양
+  const CELL_REF = "10";        // 일반 칸 글자모양(12pt 새굴림)
+  /* 학년 반 칸 — 9pt 새굴림(양식의 21번, 크기 말고는 10번과 같다). 교실 이름이 붙으면
+     안쪽 폭 16mm 칸에 12pt로는 한 줄에 한글 4자도 안 들어가 세 줄로 넘쳤다. */
+  const WHERE_REF = "21";
+  const WHERE_COL = 4;          // 왼쪽·오른쪽 표 각각에서 학년 반이 몇 번째 칸인지
 
   const xmlEscape = v => String(v ?? "")
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -60,7 +64,11 @@
     const next = text === ""
       ? `<hp:run charPrIDRef="${ref}"/>`
       : `<hp:run charPrIDRef="${ref}"><hp:t>${xmlEscape(text)}</hp:t></hp:run>`;
-    return tbl.slice(0, pStart) + para.replace(runRe, next) + tbl.slice(pEnd);
+    /* 양식 칸에 남아 있는 줄 배치 기록(linesegarray)을 지운다. 글자를 바꾸고도 이 기록이 남으면
+       한글이 옛 배치(한 줄)대로 그려, 칸을 넘는 글자가 줄을 바꾸지 않고 한 줄에 겹쳐 찍힌다.
+       기록이 없으면 한글이 열 때 줄을 새로 나눈다. */
+    const fresh = para.replace(runRe, next).replace(/<hp:linesegarray>[\s\S]*?<\/hp:linesegarray>/, "");
+    return tbl.slice(0, pStart) + fresh + tbl.slice(pEnd);
   }
 
   /* 빈 행을 복제해 6행을 넘는 교체도 담는다 */
@@ -92,8 +100,8 @@
     for (let i = 0; i < total; i += 1) {
       const r = HEAD_ROWS + i;
       const row = rows[i];
-      for (let c = 0; c < 6; c += 1) tbl = setCell(tbl, c, r, row ? row.left[c] : "", CELL_REF);
-      for (let c = 0; c < 5; c += 1) tbl = setCell(tbl, 6 + c, r, row ? row.right[c] : "", CELL_REF);
+      for (let c = 0; c < 6; c += 1) tbl = setCell(tbl, c, r, row ? row.left[c] : "", c === WHERE_COL ? WHERE_REF : CELL_REF);
+      for (let c = 0; c < 5; c += 1) tbl = setCell(tbl, 6 + c, r, row ? row.right[c] : "", c === WHERE_COL ? WHERE_REF : CELL_REF);
       tbl = setCell(tbl, 11, r, row ? row.right[5] : "", NAME_REF);
       tbl = setCell(tbl, 12, r, "", CELL_REF);
     }
