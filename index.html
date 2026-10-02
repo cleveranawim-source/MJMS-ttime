@@ -411,7 +411,7 @@
   <div class="panel" id="panel-tt" role="tabpanel" aria-labelledby="tab-tt" hidden>
     <div class="tt-controls">
       <div class="seg" role="group" aria-label="시간표 종류">
-        <button type="button" id="tt-by-class" aria-pressed="true">학급별</button>
+        <button type="button" id="tt-by-class" aria-pressed="true">학반별</button>
         <button type="button" id="tt-by-teacher" aria-pressed="false">교사별</button>
       </div>
       <label class="field" style="min-width:230px"><span>대상</span><select id="tt-entity"></select></label>
@@ -707,13 +707,13 @@ const CONSEC_CAP = 4;                    // 연달아 설 수 있는 최대 시�
 const capOf = day => DAILY_CAP[day] || 5;
 
 /* 하루에 몰아서 근무하는 강사처럼 이미 한도를 넘겨 짜인 경우가 있다.
-   그 상태는 그대로 인정하되, 교체로 거기서 더 늘어나지는 않게 한다. */
+   그 상태를 그 교사의 실효 한도로 보고, 교체로 거기서 더 늘어나면 "한도 초과"로 적는다. */
 const capFor = (teacherId, day) =>
   Math.max(capOf(day), (byTeacherDay.get(teacherId + "|" + day) || []).length);
 const consecFor = (teacherId, day) =>
   Math.max(CONSEC_CAP, consecutiveMax((byTeacherDay.get(teacherId + "|" + day) || []).map(l => l.period)));
 /* 이 회전이 각 교사의 하루를 얼마나 무겁게 만드는지, 교체 전후를 비교한다.
-   한도를 넘는 안은 이미 걸러졌으므로 여기서 잡히는 것은 "합법이지만 부담되는" 경우다. */
+   한도를 넘는 날은 overLoad가 따로 "한도 초과"로 적으므로, 여기서는 한도 안에서 부담이 커지는 경우만 잡는다. */
 const touchedDays = moves => {
   const out = new Set();
   for (const m of moves) {
@@ -810,8 +810,8 @@ function hardReason(n) {
 
 const CYCLE_MAX = 3;      // 한 회전에 참여하는 수업 수 상한
 const SUBJECT_CAP = 2;   // 한 반이 하루에 같은 과목을 받을 수 있는 최대 시간
-const ROOM_WEIGHT = 12;
-const OVER_WEIGHT = 60;  // 한도를 넘는 날 하나당 — 다른 어떤 안보다 뒤에 서게  // 교실을 새로 잡아야 하는 자리 하나당 더하는 부담 — 이틀 떨어진 값과 비슷하다
+const ROOM_WEIGHT = 12;   // 교실을 새로 잡아야 하는 자리 하나당 더하는 부담 — 이틀 떨어진 값과 비슷하다
+const OVER_WEIGHT = 60;   // 한도를 넘는 날 하나당 — 수업별 후보 안에서 맨 뒤로 보낸다
 /* 상대 선생님의 주당 시수가 평균보다 적으면 부담을 덜고, 많으면 더한다.
    시수가 적은 분(진로·종교 등)과의 안을 앞세우기로 학교가 정했다(2026-09-09). */
 const LOAD_WEIGHT = 1;
@@ -1018,7 +1018,11 @@ function optionsFor(unit, temp, usedIds, limit, sel) {
   }
   return unique;
 }
-const NODE_CAP = 4000, PLAN_CAP = 60, SHOW = 12;
+/* 결강 수업을 하나씩 처리하며, 지금까지 가장 좋은 부분안 BEAM개만 들고 간다(빔 탐색).
+   예전에는 깊이 우선으로 훑다가 안 60개를 찾으면 멈췄는데, 그 60개가 모두 앞쪽 수업의 첫 대안에
+   묶여 있었다. 하루 전체 결강의 절반(248건 중 125건)에서 더 나은 1위를 놓쳤고, 한도 안에서 다 풀리는
+   안이 있는데도 한도 초과 안이 1위에 오기도 했다(9건). 80개면 끝까지 찾은 결과와 247건이 같다(2026-10-02). */
+const SHOW = 12, BEAM = 80;
 
 function solve(sel) {
   const absent = T.get(sel.teacherId);
@@ -1039,32 +1043,32 @@ function solve(sel) {
   // 수업별 후보는 계산된 것을 전부 보여 준다 — 접혀 있는 목록이라 길어도 된다
   const perLesson = units.map(u => ({ unit: u, lesson: u.head, options: optionsFor(u, [], new Set(), Infinity, sel) }));
 
-  const plans = [];
+  /* 못 메운 수업이 적은 안, 그다음 한도를 넘지 않는 안, 그다음 부담이 낮은 안. */
+  const order = (a, b) => a.missed.length - b.missed.length || a.over - b.over || a.score - b.score;
+  let beams = [{ steps: [], temp: [], used: new Set(), score: 0, missed: [], over: 0 }];
   let nodes = 0;
-  function walk(i, steps, temp, used, score, missed) {
-    nodes += 1;
-    if (nodes > NODE_CAP || plans.length >= PLAN_CAP) return;
-    if (i >= units.length) {
-      if (steps.length) plans.push({ steps: steps.slice(), missed: missed.slice(), score });
-      return;
+  for (const unit of units) {
+    const next = [];
+    for (const b of beams) {
+      nodes += 1;
+      if (b.used.has(unit.head.id)) { next.push(b); continue; }   // 블록 통째 이동에 이미 실렸다
+      /* 수업마다 SHOW개까지 본다. 6개로 자르면 한 교시 결강은 대안이 여섯 개를 넘지 못해,
+         계산은 됐는데 화면에 못 오르는 안이 평균 넷 중 셋이었다. */
+      for (const o of optionsFor(unit, b.temp, b.used, SHOW, sel)) {
+        const used = new Set(b.used);
+        for (const id of o.usedIds) used.add(id);
+        next.push({ steps: b.steps.concat(o), temp: b.temp.concat(o.temp), used,
+                    score: b.score + o.score, missed: b.missed, over: b.over + o.over.length });
+      }
+      next.push({ ...b, missed: b.missed.concat(unit.head) });   // 이 수업은 짝을 못 찾은 채로 — 부분 조합
     }
-    const unit = units[i];
-    if (used.has(unit.head.id)) { walk(i + 1, steps, temp, used, score, missed); return; }   // 블록 통째 이동에 이미 실렸다
-    /* 수업마다 SHOW개까지 본다. 6개로 자르면 한 교시 결강은 대안이 여섯 개를 넘지 못해,
-       계산은 됐는데 화면에 못 오르는 안이 평균 넷 중 셋이었다. 탐색량은 넉넉하다(노드 상한의 4%). */
-    for (const o of optionsFor(unit, temp, used, SHOW, sel)) {
-      const nextUsed = new Set(used);
-      for (const id of o.usedIds) nextUsed.add(id);
-      walk(i + 1, steps.concat(o), temp.concat(o.temp), nextUsed, score + o.score, missed);
-    }
-    // 이 수업은 짝을 못 찾은 채로 두고 나머지를 계속 — 부분 조합
-    walk(i + 1, steps, temp, used, score, missed.concat(unit.head));
+    next.sort(order);
+    beams = next.slice(0, BEAM);
   }
-  if (units.length) walk(0, [], [], new Set(), 0, []);
+  const plans = beams.filter(b => b.steps.length).map(b => ({ steps: b.steps, missed: b.missed, score: b.score }));
 
   const seen = new Set(), unique = [];
-  /* 못 메운 수업이 적은 안, 그다음 한도를 넘지 않는 안, 그다음 부담이 낮은 안.
-     한도를 넘는 안은 적어서 보여 주되 한도 안의 안보다 앞에 서지 않는다. */
+  /* 한도를 넘는 안은 적어서 보여 주되 한도 안의 안보다 앞에 서지 않는다 (위 order와 같은 순서). */
   const overCount = p => p.steps.reduce((k, s) => k + (s.over || []).length, 0);
   plans.sort((a, b) => a.missed.length - b.missed.length || overCount(a) - overCount(b) || a.score - b.score);
   for (const p of plans) {
@@ -1130,7 +1134,7 @@ function planText(plan, r) {
          : heavyTeachers(plan).join("·") + " 선생님의 하루가 한도까지 찹니다 — " + hardNotes.map(hardReason).join(", ") + "."),
        "아래 공강 교사에게 보강을 부탁하는 편이 나을 수 있습니다.",
        ...freeTeachersAt(r.affected[0].day, r.affected[0].period, r.sel, r.affected[0].classId)
-         .filter(f => !hardNotes.some(n => n.teacher === f.name)).slice(0, 5)
+         .filter(f => !hardNotes.some(n => n.teacher === f.name) && !overNotes(plan).some(n => n.teacher === f.name)).slice(0, 5)
          .map(f => "· " + f.name + "(" + [f.subjects, f.sameClass ? "이 반 담당" : f.sameGrade ? f.grade + "학년 담당" : ""].filter(Boolean).join(", ") + ")")]
     : [];
   return [head + mark, "", ...rows,
@@ -1190,8 +1194,11 @@ function roomNotes(plan) {
 }
 
 /* 부담 점수는 단계당 평균으로 본다 — 하루 전체 결강은 단계가 많아 합계만으로는 비교가 안 된다.
-   30 이하는 짧은 맞교환 수준, 48을 넘으면 회전이 길거나 부담 표시가 붙은 안이다. */
+   30 이하는 짧은 맞교환 수준, 48을 넘으면 회전이 길거나 부담 표시가 붙은 안이다.
+   한도 초과나 무리 판정이 붙은 안은 언제나 "높음"이다. 평균으로 재면 한도를 넘는 단계 하나가
+   가벼운 단계들 사이에 묻혀, 칩은 "부담 큼"인데 눈금은 "낮음"이라고 하는 일이 있었다. */
 function burdenOf(plan) {
+  if (planIsHard(plan)) return { level: 3, word: "높음", cls: "high" };
   const per = plan.steps.length ? plan.score / plan.steps.length : 0;
   return per <= 30 ? { level: 1, word: "낮음", cls: "low" }
        : per <= 48 ? { level: 2, word: "보통", cls: "mid" }
@@ -1302,7 +1309,7 @@ function coverOnlyCard(r) {
   return `<article class="plan best">
     <div class="plan-top">
       <div><h3>교체로는 풀 수 없습니다</h3>
-        <div class="load">같은 반 안에서 근무 요일·불가 교시·한도를 모두 만족하는 짝이 없습니다</div></div>
+        <div class="load">같은 반 안에서 서로 시간이 맞는 짝이 없습니다</div></div>
       <span class="chip part">보강 필요 ${r.affected.length}건</span>
     </div>
     ${weekMap(blank, r)}

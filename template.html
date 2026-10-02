@@ -411,7 +411,7 @@
   <div class="panel" id="panel-tt" role="tabpanel" aria-labelledby="tab-tt" hidden>
     <div class="tt-controls">
       <div class="seg" role="group" aria-label="시간표 종류">
-        <button type="button" id="tt-by-class" aria-pressed="true">학급별</button>
+        <button type="button" id="tt-by-class" aria-pressed="true">학반별</button>
         <button type="button" id="tt-by-teacher" aria-pressed="false">교사별</button>
       </div>
       <label class="field" style="min-width:230px"><span>대상</span><select id="tt-entity"></select></label>
@@ -516,7 +516,7 @@ function coverOnlyCard(r) {
   return `<article class="plan best">
     <div class="plan-top">
       <div><h3>교체로는 풀 수 없습니다</h3>
-        <div class="load">같은 반 안에서 근무 요일·불가 교시·한도를 모두 만족하는 짝이 없습니다</div></div>
+        <div class="load">같은 반 안에서 서로 시간이 맞는 짝이 없습니다</div></div>
       <span class="chip part">보강 필요 ${r.affected.length}건</span>
     </div>
     ${weekMap(blank, r)}
