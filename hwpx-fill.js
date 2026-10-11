@@ -40,7 +40,7 @@
     const rows = [];
     for (const s of steps) {
       for (const sl of s.slots) {
-        const d = monthDay(dateForDay(baseDate, sl.day));
+        const d = sl.date || monthDay(dateForDay(baseDate, sl.day));   // 화면에서 고른 날짜가 있으면 그것
         rows.push({
           left:  [sl.beforeSubject, d, sl.day, String(sl.period), where(s.className, sl.beforeRoom), sl.beforeTeacher],
           right: [sl.afterSubject, d, sl.day, String(sl.period), where(s.className, sl.roomClash ? "교실 배정 필요" : sl.afterRoom), sl.afterTeacher],

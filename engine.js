@@ -524,7 +524,7 @@ function planText(plan, r) {
   const mark = sameDay ? "  [같은 날 안에서]" : "";
   const rows = plan.steps.map((s, i) => [
     (i + 1) + ". " + classLong(s.classId) + " — " + s.label + (!sameDay && s.sameDay ? " (같은 날 안에서)" : ""),
-    ...s.slots.map(sl => "   " + sl.day + " " + sl.period + "교시: " +
+    ...s.slots.map(sl => "   " + sl.day + " " + sl.period + "교시" + (sl.date ? "(" + sl.date + ")" : "") + ": " +
       sl.beforeSubject + "(" + sl.beforeTeacher + ") → " + sl.afterSubject + "(" + sl.afterTeacher + ")"),
   ].join("\n"));
   const strain = plan.steps.flatMap(s => (s.strain || []).map(n =>
